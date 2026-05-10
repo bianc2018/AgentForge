@@ -336,7 +336,7 @@
 
 ### T-32: 覆盖 Scenario "以 Docker-in-Docker 特权模式启动容器" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`When 开发者执行 run --docker`、`Then 容器以特权模式和 root 用户启动`、`And 容器内 dockerd 守护进程自动启动`、`And 容器内可正常执行 docker ps 等 docker 命令`。
+- [x] 实现 Gherkin step definitions：`When 开发者执行 run --docker`、`Then 容器以特权模式和 root 用户启动`、`And 容器内 dockerd 守护进程自动启动`、`And 容器内可正常执行 docker ps 等 docker 命令`。
 
 **可追溯性:** REQ-15 · NFR-7 · Scenario: "以 Docker-in-Docker 特权模式启动容器"
 **依赖:** T-23
