@@ -358,11 +358,152 @@ API key 以前 8 位字符 + *** + 后 4 位字符的掩码格式显示（NFR-6/
 	},
 }
 
+// endpointSetCmd represents the endpoint set subcommand
+//
+// 修改已有 LLM 端点的配置参数（REQ-24）。
+// 支持与 add 相同的全部 8 个可选参数，只需提供要修改的字段。
+// 仅更新指定的字段，未提供的字段保持原值不变。
+// 端点不存在时返回退出码 1。
+// 修改成功后文件权限保持 0600（NFR-9）。
+var endpointSetCmd = &cobra.Command{
+	Use:   "set <name>",
+	Short: "修改已有端点的配置参数",
+	Long: `修改已有 LLM 端点的配置参数（REQ-24）。
+
+支持与 add 相同的全部 8 个可选参数（--provider, --url, --key, --model,
+--model-opus, --model-sonnet, --model-haiku, --model-subagent），
+只需提供要修改的字段。未提供的字段保持原值不变。
+
+端点不存在时返回退出码 1。
+修改成功后文件权限保持 0600（NFR-9）。
+
+示例：
+  # 修改 API key 和模型
+  agent-forge endpoint set my-ep --key sk-new-key --model gpt-5
+
+  # 修改 endpoint 的 URL
+  agent-forge endpoint set my-ep --url https://api.new-provider.com`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		// --- 读取提供的参数（只取非空的作为更新） ---
+		provider, _ := cmd.Flags().GetString("provider")
+		url, _ := cmd.Flags().GetString("url")
+		key, _ := cmd.Flags().GetString("key")
+		model, _ := cmd.Flags().GetString("model")
+		modelOpus, _ := cmd.Flags().GetString("model-opus")
+		modelSonnet, _ := cmd.Flags().GetString("model-sonnet")
+		modelHaiku, _ := cmd.Flags().GetString("model-haiku")
+		modelSubagent, _ := cmd.Flags().GetString("model-subagent")
+
+		// --- 确认至少有一个字段要更新 ---
+		if provider == "" && url == "" && key == "" && model == "" &&
+			modelOpus == "" && modelSonnet == "" && modelHaiku == "" && modelSubagent == "" {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 未指定要更新的字段\n"+
+					"上下文: 正在修改端点 %s，但未提供任何更新参数\n"+
+					"建议: 请至少提供一个要修改的参数，如 --key, --model, --url 等。\n"+
+					"使用 endpoint set --help 查看所有可用的更新参数", name),
+			)
+		}
+
+		// --- 解析配置目录 ---
+		configFlag, _ := cmd.Flags().GetString("config")
+		configDir, err := configresolver.Resolve(configFlag)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 解析配置目录失败\n"+
+					"上下文: 正在为 endpoint set 命令解析配置目录路径\n"+
+					"建议: 请确认 -c 参数指定的路径有效，或使用默认路径\n"+
+					"错误详情: %s", err.Error()),
+			)
+		}
+
+		endpointDir := filepath.Join(configDir, "endpoints", name)
+
+		// --- 构建更新配置（仅填充提供的字段，其余保持零值） ---
+		updates := &endpointmanager.EndpointConfig{
+			Provider:      provider,
+			URL:           url,
+			Key:           key,
+			Model:         model,
+			ModelOpus:     modelOpus,
+			ModelSonnet:   modelSonnet,
+			ModelHaiku:    modelHaiku,
+			ModelSubagent: modelSubagent,
+		}
+
+		if err := endpointmanager.UpdateEndpointConfig(endpointDir, updates); err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 更新端点配置失败\n"+
+					"上下文: 正在修改端点 %s 的配置\n"+
+					"建议: 请确认端点 %s 已存在，或使用 endpoint list 查看所有可用端点\n"+
+					"错误详情: %s", name, name, err.Error()),
+			)
+		}
+
+		fmt.Printf("端点 %s 已更新\n", name)
+		return nil
+	},
+}
+
+// endpointRmCmd represents the endpoint rm subcommand
+//
+// 删除指定 LLM 端点及其对应目录（REQ-25）。
+// 递归删除 <config-dir>/endpoints/<name>/ 整个目录。
+// 端点不存在时返回退出码 1。
+// 删除后 endpoint list 输出中不再包含被删除的端点。
+var endpointRmCmd = &cobra.Command{
+	Use:   "rm <name>",
+	Short: "删除指定端点及其对应目录",
+	Long: `删除指定 LLM 端点及其对应配置目录（REQ-25）。
+
+递归删除 <config-dir>/endpoints/<name>/ 整个目录。
+删除后 endpoint list 输出中不再包含被删除的端点。
+端点不存在时返回退出码 1。
+
+示例：
+  agent-forge endpoint rm my-ep`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		// --- 解析配置目录 ---
+		configFlag, _ := cmd.Flags().GetString("config")
+		configDir, err := configresolver.Resolve(configFlag)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 解析配置目录失败\n"+
+					"上下文: 正在为 endpoint rm 命令解析配置目录路径\n"+
+					"建议: 请确认 -c 参数指定的路径有效，或使用默认路径\n"+
+					"错误详情: %s", err.Error()),
+			)
+		}
+
+		endpointDir := filepath.Join(configDir, "endpoints", name)
+
+		if err := endpointmanager.RemoveEndpointConfig(endpointDir); err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 删除端点失败\n"+
+					"上下文: 正在删除端点 %s 的配置目录 %s\n"+
+					"建议: 请确认端点 %s 已存在，或使用 endpoint list 查看所有可用端点\n"+
+					"错误详情: %s", name, endpointDir, name, err.Error()),
+			)
+		}
+
+		fmt.Printf("端点 %s 已删除\n", name)
+		return nil
+	},
+}
+
 func init() {
 	endpointCmd.AddCommand(endpointProvidersCmd)
 	endpointCmd.AddCommand(endpointListCmd)
 	endpointCmd.AddCommand(endpointShowCmd)
 	endpointCmd.AddCommand(endpointAddCmd)
+	endpointCmd.AddCommand(endpointSetCmd)
+	endpointCmd.AddCommand(endpointRmCmd)
 
 	endpointAddCmd.Flags().String("provider", "", "LLM 服务商（deepseek / openai / anthropic）")
 	endpointAddCmd.Flags().String("url", "", "API 基础 URL")
@@ -372,6 +513,15 @@ func init() {
 	endpointAddCmd.Flags().String("model-sonnet", "", "Sonnet 模型")
 	endpointAddCmd.Flags().String("model-haiku", "", "Haiku 模型")
 	endpointAddCmd.Flags().String("model-subagent", "", "Subagent 模型")
+
+	endpointSetCmd.Flags().String("provider", "", "LLM 服务商（deepseek / openai / anthropic）")
+	endpointSetCmd.Flags().String("url", "", "API 基础 URL")
+	endpointSetCmd.Flags().String("key", "", "API key")
+	endpointSetCmd.Flags().String("model", "", "默认模型")
+	endpointSetCmd.Flags().String("model-opus", "", "Opus 模型")
+	endpointSetCmd.Flags().String("model-sonnet", "", "Sonnet 模型")
+	endpointSetCmd.Flags().String("model-haiku", "", "Haiku 模型")
+	endpointSetCmd.Flags().String("model-subagent", "", "Subagent 模型")
 
 	endpointCmd.PersistentFlags().StringP("config", "c", "", "配置目录路径")
 }

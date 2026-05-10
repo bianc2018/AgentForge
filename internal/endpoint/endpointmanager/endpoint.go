@@ -194,6 +194,68 @@ func ReadEndpointConfig(endpointDir string) (*EndpointConfig, error) {
 	return cfg, nil
 }
 
+// UpdateEndpointConfig 更新指定端点的部分配置字段。
+//
+// 只更新 updates 中非空的字段，空字段保持原值不变。
+// 先读取现有配置文件，应用更新后写回，文件权限保持 0600（NFR-9）。
+// 端点不存在时返回包含路径的错误信息（NFR-16 格式）。
+func UpdateEndpointConfig(endpointDir string, updates *EndpointConfig) error {
+	// 读取现有配置
+	cfg, err := ReadEndpointConfig(endpointDir)
+	if err != nil {
+		return fmt.Errorf("更新端点配置失败: %w", err)
+	}
+
+	// 仅更新提供的非空值
+	if updates.Provider != "" {
+		cfg.Provider = updates.Provider
+	}
+	if updates.URL != "" {
+		cfg.URL = updates.URL
+	}
+	if updates.Key != "" {
+		cfg.Key = updates.Key
+	}
+	if updates.Model != "" {
+		cfg.Model = updates.Model
+	}
+	if updates.ModelOpus != "" {
+		cfg.ModelOpus = updates.ModelOpus
+	}
+	if updates.ModelSonnet != "" {
+		cfg.ModelSonnet = updates.ModelSonnet
+	}
+	if updates.ModelHaiku != "" {
+		cfg.ModelHaiku = updates.ModelHaiku
+	}
+	if updates.ModelSubagent != "" {
+		cfg.ModelSubagent = updates.ModelSubagent
+	}
+
+	// 写回文件，保持 0600 权限
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		return fmt.Errorf("更新端点配置后写回失败: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveEndpointConfig 递归删除指定端点的整个配置目录。
+//
+// 端点不存在时返回清晰的错误信息（包含路径），供上游遵循 NFR-16 格式。
+func RemoveEndpointConfig(endpointDir string) error {
+	// 先检查目录是否存在，不存在时返回特定错误
+	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
+		return fmt.Errorf("端点配置目录不存在: %s", endpointDir)
+	}
+
+	if err := os.RemoveAll(endpointDir); err != nil {
+		return fmt.Errorf("删除端点配置目录失败 %s: %w", endpointDir, err)
+	}
+
+	return nil
+}
+
 // fieldValue 根据字段 key 从 EndpointConfig 中获取对应的值。
 func fieldValue(cfg *EndpointConfig, key string) string {
 	switch key {
