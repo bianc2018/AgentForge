@@ -148,7 +148,7 @@ flowchart TD
 
 ### EndpointManager
 - **层：** 配置管理层
-- **职责：** 管理 LLM 端点配置的完整 CRUD（add、set、rm、list、show、providers、test）；存储格式为 `endpoint.env` 文件，每个端点一个目录；test 子命令通过 curl 向 LLM 端点发送 POST chat/completions 请求验证连通性；show 子命令对 API key 做掩码处理
+- **职责：** 管理 LLM 端点配置的完整 CRUD（add、set、rm、list、show、providers、test）；存储格式为 `endpoint.env` 文件，每个端点一个目录；test 子命令通过 Go `net/http` 向 LLM 端点发送 POST chat/completions 请求验证连通性，无需外部 curl 依赖；show 子命令对 API key 做掩码处理
 - **依赖：** Config Resolver（确定存储路径）
 - **覆盖的 REQ：** REQ-19 至 REQ-27；NFR-4、NFR-5、NFR-6、NFR-9、NFR-14、NFR-16
 
@@ -166,7 +166,7 @@ flowchart TD
 
 ### DiagnosticEngine
 - **层：** 诊断层
-- **职责：** 执行三层环境诊断：核心依赖（docker、curl、git）→ 运行时（Docker daemon 运行状态、权限）→ 可选工具（jq、buildx）；检测到缺失核心依赖时调用 Package Manager Adapter 自动安装
+- **职责：** 执行三层环境诊断：核心依赖（docker）→ 运行时（Docker daemon 运行状态、权限）→ 可选工具（jq、buildx）；检测到缺失核心依赖时调用 Package Manager Adapter 自动安装。Go 单二进制已消除 curl/git 作为运行时依赖。
 - **依赖：** Package Manager Adapter
 - **覆盖的 REQ：** REQ-31、REQ-32；NFR-17、NFR-19
 
@@ -191,7 +191,7 @@ flowchart TD
 ### Self-Update Engine
 - **层：** 自管理层
 - **职责：** 从 Git remote 或 UPDATE_URL 下载最新版本 CLI，嵌入 git hash，备份旧版本，更新失败时自动回滚
-- **依赖：** 无（调用 curl/git 和文件操作）
+- **依赖：** 无（通过 Go `net/http` 和文件操作）
 - **覆盖的 REQ：** REQ-36；NFR-13、NFR-21、NFR-22
 
 ### Version Info
@@ -432,7 +432,7 @@ erDiagram
 
 #### `endpoint test <name>`
 - **描述：** 测试端点连通性，发送 POST chat/completions 请求
-- **行为：** 使用 curl 向端点 URL 发送 POST 请求，测量延迟，输出回复摘要
+- **行为：** 通过 Go `net/http` 向端点 URL 发送 POST 请求，测量延迟，输出回复摘要
 - **超时：** 30 秒（NFR-4）
 - **退出码：**
   | 退出码 | 条件 |
@@ -465,7 +465,7 @@ erDiagram
 ### `agent-forge doctor`
 - **描述：** 执行三层环境诊断并自动修复
 - **诊断顺序：**
-  1. 核心依赖：docker、curl、git
+  1. 核心依赖：docker
   2. 运行时：Docker daemon 运行状态、权限
   3. 可选工具：jq、buildx
 - **自动修复：** 核心依赖缺失时使用包管理器安装（NFR-19），安装后重新检测
@@ -624,7 +624,7 @@ sequenceDiagram
 
 1. **BuildEngine** 启动构建，调用 Dockerfile Generator 生成 Dockerfile（配置 `--gh-proxy https://gh-proxy.example.com` 代理）
 2. **Docker Helper** 执行 `docker build`，首次 GitHub 资源请求超时
-3. **Docker Helper** 识别网络错误（curl 退出码指示网络故障），通知 BuildEngine
+3. **Docker Helper** 识别网络错误（HTTP 请求失败，如连接超时/被拒），通知 BuildEngine
 4. **BuildEngine** 启动指数退避重试：首次等待 1 秒、第二次等待 2 秒、第三次等待 4 秒（NFR-10）
 5. 在第三次重试时资源下载成功，构建继续
 6. 构建完成，退出码 0
@@ -642,12 +642,12 @@ sequenceDiagram
     Dev->>BE: build -d all --max-retry 3
     BE->>DH: docker build (首次)
     DH->>DK: 拉取依赖...
-    DK-->>DH: curl 退出码 7 (连接超时)
+    DK-->>DH: HTTP 连接超时
     DH-->>BE: 网络错误
     BE->>BE: 等待 1s (指数退避)
     BE->>DH: docker build (第2次)
     DH->>DK: 拉取依赖...
-    DK-->>DH: curl 退出码 28 (超时)
+    DK-->>DH: HTTP 请求超时
     DH-->>BE: 网络错误
     BE->>BE: 等待 2s
     BE->>DH: docker build (第3次)
@@ -1027,13 +1027,13 @@ sequenceDiagram
 
 1. **CLI Router** 接收 `endpoint test my-ep`，路由到 EndpointManager
 2. **EndpointManager** 读取 `my-ep/endpoint.env` 获取 URL 和 KEY
-3. **EndpointManager** 使用 curl 向 `{URL}/chat/completions` 发送 POST 请求
+3. **EndpointManager** 通过 Go `net/http` 向 `{URL}/chat/completions` 发送 POST 请求
 4. 请求成功，测量延迟
 5. 输出请求延迟（如 "延迟: 320ms"）和回复摘要
 6. 退出码 0
 
 **替代流程（Scenario: 测试端点连通性失败）：**
-- *步骤 3 请求超时或失败*：curl 在 30 秒内超时（NFR-4）→ 输出 "连接失败: 连接超时，建议检查 URL 和网络连通性" → 退出码 1
+- *步骤 3 请求超时或失败*：HTTP 请求在 30 秒内超时（NFR-4）→ 输出 "连接失败: 连接超时，建议检查 URL 和网络连通性" → 退出码 1
 
 ```mermaid
 sequenceDiagram
@@ -1124,7 +1124,7 @@ sequenceDiagram
 ### 流程：环境诊断（Scenario: 环境诊断）
 
 1. **CLI Router** 接收 `doctor`，路由到 DiagnosticEngine
-2. **第一层 — 核心依赖检测**：依次检查 docker、curl、git 是否可执行
+2. **第一层 — 核心依赖检测**：检查 docker 是否可执行（Go 单二进制已消除 curl/git 运行时依赖）
 3. 如果缺失核心依赖，调用 Package Manager Adapter 自动安装（NFR-19）
 4. 安装后重新检测，循环直到全部通过或安装失败
 5. **第二层 — 运行时检测**：`docker info` 检查 Docker daemon 运行状态、当前用户权限
@@ -1141,7 +1141,7 @@ sequenceDiagram
 
     Dev->>CLI: doctor
     CLI->>DE: 执行诊断
-    DE->>DE: 检测核心依赖（docker, curl, git）
+    DE->>DE: 检测核心依赖（docker）
     alt 检测到缺失
         DE->>PM: apt-get/dnf/yum/brew install <缺失依赖>
         PM->>OS: 执行安装命令
@@ -1235,7 +1235,7 @@ sequenceDiagram
     Dev->>CLI: update
     CLI->>UE: 执行自更新
     UE->>FS: 备份当前二进制
-    UE->>Git: curl 下载最新版本
+    UE->>Git: HTTP GET 下载最新版本
     Git-->>UE: 新版本二进制
     UE->>UE: 嵌入 git hash、验证完整性
     UE->>FS: 替换旧二进制为新版本

@@ -150,14 +150,14 @@ Feature: AgentForge
 
   Scenario: 环境诊断
     Given Docker Engine 已安装并运行
-    And curl、git 等核心依赖已安装
+    And Docker 核心依赖已安装
     When 开发者执行 doctor
     Then 核心依赖检查全部通过
     And 运行时检查 Docker daemon 运行状态正常
     And 可选工具检查 jq、buildx 安装状态
     And 所有三层诊断输出均为通过状态
     Given Docker Engine 已安装
-    And curl 或 git 等核心依赖缺失
+    And Docker 核心依赖缺失
     When 开发者执行 doctor
     Then 系统检测到缺失的核心依赖
     And 自动使用 apt-get / dnf / yum / brew 安装缺失组件
