@@ -202,7 +202,7 @@ func TestGenerate_NoGHProxyByDefault(t *testing.T) {
 
 func TestGenerate_NodeRuntimeInstall(t *testing.T) {
 	opts := Options{
-		Deps: []string{"node@20"},
+		Deps: []string{"node@16"},
 	}
 	dockerfile, err := Generate(opts)
 	if err != nil {
@@ -210,8 +210,8 @@ func TestGenerate_NodeRuntimeInstall(t *testing.T) {
 	}
 
 	// Node install should have the correct nodesource setup
-	if !strings.Contains(dockerfile, "nodesource.com/setup_20.x") {
-		t.Error("Missing node 20.x setup reference")
+	if !strings.Contains(dockerfile, "nodesource.com/setup_16.x") {
+		t.Error("Missing Node.js 16.x setup reference")
 	}
 
 	// Node should be installed

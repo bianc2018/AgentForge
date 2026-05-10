@@ -103,7 +103,7 @@
 
 ### T-10: 实现 UT-1 DepsModule.ExpandDeps 和 UT-2 DepsModule.ResolveInstallMethod 单元测试
 
-- [ ] 编写单元测试覆盖 `ExpandDeps()` 的 6 个案例（all 展开、mini 展开、单体依赖、混合标签、未知名称、空输入）；覆盖 `ResolveInstallMethod()` 的 6 个案例（agent、runtime 带版本、runtime 无版本、tool、未知名称、格式错误名称）。无需 mock，纯领域逻辑。
+- [x] 编写单元测试覆盖 `ExpandDeps()` 的 6 个案例（all 展开、mini 展开、单体依赖、混合标签、未知名称、空输入）；覆盖 `ResolveInstallMethod()` 的 6 个案例（agent、runtime 带版本、runtime 无版本、tool、未知名称、格式错误名称）。无需 mock，纯领域逻辑。
 
 **可追溯性:** REQ-1 · REQ-2 · Scenario: "构建包含全部依赖的镜像" · Scenario: "构建包含指定依赖的自定义镜像"
 **依赖:** T-05
@@ -113,7 +113,7 @@
 
 ### T-11: 实现 UT-3 DockerfileGenerator.Generate 单元测试
 
-- [ ] 编写单元测试覆盖 `Generate()` 的 6 个案例：正常路径、指定基础镜像、国内镜像源替换、带 gh-proxy、空依赖列表、环境变量注入。无需 mock，纯字符串生成。
+- [x] 编写单元测试覆盖 `Generate()` 的 6 个案例：正常路径、指定基础镜像、国内镜像源替换、带 gh-proxy、空依赖列表、环境变量注入。无需 mock，纯字符串生成。
 
 **可追溯性:** REQ-1 · REQ-3 · REQ-5 · REQ-6 · Scenario: "构建包含全部依赖的镜像"
 **依赖:** T-06
@@ -123,7 +123,7 @@
 
 ### T-12: 实现 UT-4 BuildEngine.CalculateBackoff 单元测试
 
-- [ ] 编写单元测试覆盖指数退避计算的 5 个案例：第 1 次重试等待 1 秒、第 2 次 2 秒、第 3 次 4 秒、第 N 次 2^(N-1) 秒、超过 max-retry 后不再重试。无需 mock，纯数学计算。
+- [x] 编写单元测试覆盖指数退避计算的 5 个案例：第 1 次重试等待 1 秒、第 2 次 2 秒、第 3 次 4 秒、第 N 次 2^(N-1) 秒、超过 max-retry 后不再重试。无需 mock，纯数学计算。
 
 **可追溯性:** REQ-4 · NFR-10 · Scenario: "构建过程中网络错误时自动重试"
 **依赖:** T-08
@@ -133,7 +133,7 @@
 
 ### T-13: 实现 IT-4 DockerHelper 和 IT-5 BuildEngine 集成测试
 
-- [ ] 编写 DockerHelper 集成测试：在真实 Docker daemon 上验证 Ping、Info、ImageList 等基础操作；验证 daemon 不可达时的错误处理。编写 BuildEngine 集成测试：最小依赖构建、自定义基础镜像、--no-cache、rebuild 成功/失败、网络错误重试、失败清理。测试完成后清理构建产生的镜像。
+- [x] 编写 DockerHelper 集成测试：在真实 Docker daemon 上验证 Ping、Info、ImageList 等基础操作；验证 daemon 不可达时的错误处理。编写 BuildEngine 集成测试：最小依赖构建、自定义基础镜像、--no-cache、rebuild 成功/失败、网络错误重试、失败清理。测试完成后清理构建产生的镜像。
 
 **可追溯性:** REQ-1 · REQ-4 · REQ-6 · REQ-7 · REQ-8 · NFR-1 · NFR-10 · NFR-11 · NFR-17 · NFR-18 · NFR-23
 **依赖:** T-07 · T-08 · T-09
@@ -143,7 +143,7 @@
 
 ### T-14: 覆盖 Scenario "构建包含全部依赖的镜像" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given Docker Engine 已安装并运行`、`When 开发者执行 build -d all --max-retry 3`、`Then 构建过程退出码为 0`、`And docker images 列表中包含新生成的镜像`。测试完成后清理构建产物。
+- [x] 实现 Gherkin step definitions：`Given Docker Engine 已安装并运行`、`When 开发者执行 build -d all --max-retry 3`、`Then 构建过程退出码为 0`、`And docker images 列表中包含新生成的镜像`。测试完成后清理构建产物。
 
 **可追溯性:** REQ-1 · REQ-3 · REQ-4 · REQ-6 · NFR-1 · NFR-10 · Scenario: "构建包含全部依赖的镜像"
 **依赖:** T-07

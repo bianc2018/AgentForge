@@ -219,8 +219,6 @@ func TestResolveInstallMethod_AllTypes(t *testing.T) {
 		{"gitnexus", DepTool},
 		{"docker", DepTool},
 		{"rtk", DepTool},
-		{"kld-sdd", DepTool},
-		{"tr-sdd", DepTool},
 	}
 
 	for _, tt := range tests {

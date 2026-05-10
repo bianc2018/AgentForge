@@ -120,8 +120,9 @@ var knownDeps = map[string]*depInfo{
 		commands: func(version string) []string {
 			v := version
 			if v == "" {
-				v = "20.x"
+				v = "16.x"
 			}
+			// CentOS 7 glibc 2.17 仅支持 Node < 18
 			return []string{
 				fmt.Sprintf("curl -fsSL https://rpm.nodesource.com/setup_%s -o /tmp/nodesetup.sh", v),
 				"bash /tmp/nodesetup.sh",
@@ -168,34 +169,19 @@ var knownDeps = map[string]*depInfo{
 		},
 	},
 
-	// --- System packages (versionless tools installed via yum) ---
-	"kld-sdd": {
-		name:    "kld-sdd",
-		depType: DepTool,
-		commands: func(version string) []string {
-			return []string{"yum install -y kld-sdd"}
-		},
-	},
-	"tr-sdd": {
-		name:    "tr-sdd",
-		depType: DepTool,
-		commands: func(version string) []string {
-			return []string{"yum install -y tr-sdd"}
-		},
-	},
 }
 
 // allDeps 是所有依赖的完整列表（用于 "all" 元标签展开）。
 var allDeps = []string{
 	"claude", "opencode", "kimi", "deepseek-tui",
-	"golang@1.22.3", "node@20",
-	"speckit", "openspec", "gitnexus", "docker", "rtk", "kld-sdd", "tr-sdd",
+	"golang@1.22.3", "node@16",
+	"speckit", "openspec", "gitnexus", "docker", "rtk",
 }
 
 // miniDeps 是常用依赖子集（用于 "mini" 元标签展开）。
 var miniDeps = []string{
 	"claude", "opencode",
-	"golang@1.22.3", "node@20",
+	"golang@1.22.3", "node@16",
 	"speckit", "gitnexus",
 }
 
@@ -211,8 +197,8 @@ var miniDeps = []string{
 //
 // 示例：
 //
-//	ExpandDeps("all")              -> [claude opencode kimi deepseek-tui golang@1.22.3 node@20 speckit ...]
-//	ExpandDeps("mini")             -> [claude opencode golang@1.22.3 node@20 speckit gitnexus]
+//	ExpandDeps("all")              -> [claude opencode kimi deepseek-tui golang@1.22.3 node@16 speckit ...]
+//	ExpandDeps("mini")             -> [claude opencode golang@1.22.3 node@16 speckit gitnexus]
 //	ExpandDeps("claude,golang@1.21") -> [claude golang@1.21]
 //	ExpandDeps("")                 -> []
 func ExpandDeps(input string) []string {

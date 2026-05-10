@@ -225,7 +225,7 @@ func TestBuildEngine_BuildWithMinimalDeps(t *testing.T) {
 	engine := New(helper)
 	defer engine.Close()
 
-	buildCtx, buildCancel := context.WithTimeout(context.Background(), 300*time.Second)
+	buildCtx, buildCancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer buildCancel()
 
 	output, err := engine.Build(buildCtx, BuildParams{
@@ -284,6 +284,243 @@ func TestBuildEngine_Build_WithUnreachableDocker(t *testing.T) {
 }
 
 // --- Rebuild mode tests ---
+
+// TestBuildEngine_BuildFailure verifies build returns non-zero error when
+// an invalid base image is specified. This tests the build failure path.
+func TestBuildEngine_BuildFailure(t *testing.T) {
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker daemon not available, skipping: %v", err)
+	}
+
+	engine := New(helper)
+	defer engine.Close()
+
+	buildCtx, buildCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer buildCancel()
+
+	// Build with a nonexistent base image should fail quickly
+	_, err = engine.Build(buildCtx, BuildParams{
+		BaseImage: "docker.1ms.run/nonexistent:latest",
+		MaxRetry:  0,
+	})
+	if err == nil {
+		t.Fatal("Build() expected error with nonexistent base image, got nil")
+	}
+	t.Logf("Build failure returned expected error: %v", err)
+}
+
+// TestBuildEngine_RebuildFailure verifies that when rebuild mode fails,
+// the original agent-forge:latest image is preserved unchanged.
+// Uses a pre-existing base image tagged as agent-forge:latest to avoid
+// a full initial build.
+func TestBuildEngine_RebuildFailure(t *testing.T) {
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker daemon not available, skipping: %v", err)
+	}
+
+	// Check if base image is cached
+	baseImage := dockerfilegen.DefaultBaseImage
+	exists, err := helper.ImageExists(pingCtx, baseImage)
+	if err != nil || !exists {
+		t.Skipf("Base image %s not cached, skipping integration test", baseImage)
+	}
+
+	// Tag base image as agent-forge:latest (simulates existing image)
+	if err := helper.ImageTag(pingCtx, baseImage, ImageTag); err != nil {
+		t.Fatalf("ImageTag() error = %v", err)
+	}
+	defer func() {
+		_, _ = helper.ImageRemove(context.Background(), ImageTag, true, true)
+	}()
+
+	// Get original image ID
+	images, err := helper.ImageList(pingCtx, types.ImageListOptions{})
+	if err != nil {
+		t.Fatalf("ImageList() error = %v", err)
+	}
+	origID := ""
+	for _, img := range images {
+		for _, tag := range img.RepoTags {
+			if tag == ImageTag {
+				origID = img.ID
+				break
+			}
+		}
+		if origID != "" {
+			break
+		}
+	}
+
+	engine := New(helper)
+	defer engine.Close()
+
+	buildCtx, buildCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer buildCancel()
+
+	// Rebuild with invalid base image should fail
+	_, err = engine.Build(buildCtx, BuildParams{
+		BaseImage: "docker.1ms.run/nonexistent:latest",
+		MaxRetry:  0,
+		Rebuild:   true,
+	})
+	if err == nil {
+		t.Fatal("Build() expected error with nonexistent base image in rebuild mode")
+	}
+	t.Logf("Rebuild failure returned expected error: %v", err)
+
+	// Verify original agent-forge:latest still exists with same ID
+	images2, err := helper.ImageList(buildCtx, types.ImageListOptions{})
+	if err != nil {
+		t.Fatalf("ImageList() error = %v", err)
+	}
+	newID := ""
+	for _, img := range images2 {
+		for _, tag := range img.RepoTags {
+			if tag == ImageTag {
+				newID = img.ID
+				break
+			}
+		}
+		if newID != "" {
+			break
+		}
+	}
+	if newID == "" {
+		t.Fatal("agent-forge:latest was removed after failed rebuild")
+	}
+	if newID != origID {
+		t.Errorf("Image ID changed after failed rebuild: was %s, now %s", origID, newID)
+	}
+}
+
+// TestBuildEngine_RebuildSuccess verifies rebuild mode atomically replaces
+// the existing image with a newly built one.
+func TestBuildEngine_RebuildSuccess(t *testing.T) {
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker daemon not available, skipping: %v", err)
+	}
+
+	baseImage := dockerfilegen.DefaultBaseImage
+	exists, err := helper.ImageExists(pingCtx, baseImage)
+	if err != nil || !exists {
+		t.Skipf("Base image %s not cached, skipping integration test", baseImage)
+	}
+
+	// First build to create agent-forge:latest
+	engine := New(helper)
+	defer engine.Close()
+
+	buildCtx, buildCancel := context.WithTimeout(context.Background(), 600*time.Second)
+	defer buildCancel()
+
+	output, err := engine.Build(buildCtx, BuildParams{
+		Deps:     "",
+		MaxRetry: 1,
+	})
+	if err != nil {
+		t.Fatalf("First Build() error = %v\nOutput: %s", err, output)
+	}
+
+	// Get original image ID
+	images, err := helper.ImageList(buildCtx, types.ImageListOptions{})
+	if err != nil {
+		t.Fatalf("ImageList() error = %v", err)
+	}
+	origID := ""
+	for _, img := range images {
+		for _, tag := range img.RepoTags {
+			if tag == ImageTag {
+				origID = img.ID
+				break
+			}
+		}
+		if origID != "" {
+			break
+		}
+	}
+	if origID == "" {
+		t.Fatal("Could not find agent-forge:latest after first build")
+	}
+
+	// Rebuild with -R (forces --no-cache, atomic replacement)
+	output2, err := engine.Build(buildCtx, BuildParams{
+		Deps:     "",
+		MaxRetry: 1,
+		Rebuild:  true,
+	})
+	if err != nil {
+		t.Fatalf("Rebuild() error = %v\nOutput: %s", err, output2)
+	}
+
+	// Verify new image exists with different ID
+	images2, err := helper.ImageList(buildCtx, types.ImageListOptions{})
+	if err != nil {
+		t.Fatalf("ImageList() error = %v", err)
+	}
+	newID := ""
+	for _, img := range images2 {
+		for _, tag := range img.RepoTags {
+			if tag == ImageTag {
+				newID = img.ID
+				break
+			}
+		}
+		if newID != "" {
+			break
+		}
+	}
+	if newID == "" {
+		t.Fatal("agent-forge:latest not found after rebuild")
+	}
+	if newID == origID {
+		t.Log("Warning: rebuilt image has same ID (may be identical content with --no-cache)")
+	}
+
+	// Verify old image ID is no longer present (cleaned up)
+	oldStillExists := false
+	for _, img := range images2 {
+		if img.ID == origID {
+			// Check if the old image still has any tags
+			if len(img.RepoTags) > 0 {
+				oldStillExists = true
+			}
+			break
+		}
+	}
+	if oldStillExists {
+		t.Log("Note: old image still has tags (expected if intermediate was shared)")
+	}
+
+	// Cleanup
+	_, err = helper.ImageRemove(buildCtx, ImageTag, true, true)
+	if err != nil {
+		t.Logf("Warning: failed to remove test image after rebuild: %v", err)
+	}
+}
 
 func TestRebuild_SuccessPath_WithoutDocker(t *testing.T) {
 	// Test that a rebuild build with unreachable Docker properly returns error

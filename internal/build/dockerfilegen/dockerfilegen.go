@@ -39,11 +39,14 @@ const (
 //
 // 生成的 Dockerfile 结构：
 //  1. FROM 指令（基础镜像）
-//  2. 系统基础工具安装（curl、git 等）
-//  3. 国内镜像源配置（npm、pip、yum）
-//  4. GitHub 代理 URL 注入（可选）
-//  5. 依赖安装指令（根据每种依赖的 install method）
-//  6. 默认 entrypoint
+//  2. YUM 镜像源配置（阿里云 CentOS Vault，在第一个 yum 操作之前）
+//  3. 系统基础工具安装（curl、git 等）
+//  4. 语言运行时环境准备（Node.js、Python3）
+//  5. npm/pip 国内镜像源配置（通过环境变量，兼容 CentOS 7 pip 9.0.3）
+//  6. GitHub 代理 URL 注入（可选）
+//  7. 依赖安装指令（根据每种依赖的 install method）
+//  8. 清理安装缓存
+//  9. 默认 entrypoint
 //
 // 返回合法的 Dockerfile 字符串，不包含注释。
 func Generate(opts Options) (string, error) {
@@ -57,33 +60,41 @@ func Generate(opts Options) (string, error) {
 	// 1. FROM
 	fmt.Fprintf(&sb, "FROM %s\n", baseImage)
 
-	// 2. 系统基础工具（始终安装）
+	// 2. YUM 镜像源配置（在第一个 yum 操作之前，REQ-3）
+	// CentOS 7 已于 2024 年 6 月 EOL，mirrorlist 已失效
+	sb.WriteString("\n# 配置 YUM 镜像源（CentOS 7 EOL，切换阿里云 Vault）\n")
+	sb.WriteString("RUN sed -i 's|^mirrorlist=|#mirrorlist=|' /etc/yum.repos.d/CentOS-*.repo && \\\n")
+	sb.WriteString("    sed -i 's|^#baseurl=http://mirror.centos.org/centos/$releasever|baseurl=https://mirrors.aliyun.com/centos-vault/7.9.2009|' /etc/yum.repos.d/CentOS-*.repo\n")
+
+	// 3. 系统基础工具（始终安装）
 	sb.WriteString("\n# 安装基础工具\n")
 	sb.WriteString("RUN yum install -y epel-release && \\\n")
 	sb.WriteString("    yum install -y curl git wget tar gzip unzip && \\\n")
 	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
 
-	// 3. 语言运行时环境准备
+	// 4. 语言运行时环境准备
+	// CentOS 7 glibc 2.17 无法支持 Node.js >= 18，使用 nodesource 16.x
 	sb.WriteString("\n# 安装 Node.js (npm) 和 Python3 (pip3)\n")
-	sb.WriteString("RUN curl -fsSL https://rpm.nodesource.com/setup_20.x -o /tmp/nodesetup.sh && \\\n")
+	sb.WriteString("RUN curl -fsSL https://rpm.nodesource.com/setup_16.x -o /tmp/nodesetup.sh && \\\n")
 	sb.WriteString("    bash /tmp/nodesetup.sh && \\\n")
 	sb.WriteString("    yum install -y nodejs python3 python3-pip && \\\n")
 	sb.WriteString("    rm -f /tmp/nodesetup.sh && \\\n")
 	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
 
-	// 4. 国内镜像源配置（使用国内基础镜像或显式指定 --mirror）
-	sb.WriteString("\n# 配置国内镜像源\n")
-	sb.WriteString("RUN npm config set registry https://registry.npmmirror.com && \\\n")
-	sb.WriteString("    pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \\\n")
-	sb.WriteString("    pip3 config set global.trusted-host mirrors.aliyun.com\n")
+	// 5. npm/pip 国内镜像源配置（通过环境变量而非命令，兼容低版本工具）
+	// CentOS 7 的 pip 9.0.3 不支持 `pip config set`，npm 也存在版本兼容问题
+	sb.WriteString("\n# 配置 npm/pip 国内镜像源\n")
+	sb.WriteString("ENV npm_config_registry=https://registry.npmmirror.com\n")
+	sb.WriteString("ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/\n")
+	sb.WriteString("ENV PIP_TRUSTED_HOST=mirrors.aliyun.com\n")
 
-	// 5. GitHub 代理配置
+	// 6. GitHub 代理配置
 	if opts.GHProxy != "" {
 		sb.WriteString("\n# GitHub 代理配置\n")
 		fmt.Fprintf(&sb, "ENV GH_PROXY_URL=%s\n", opts.GHProxy)
 	}
 
-	// 6. 安装依赖
+	// 7. 安装依赖
 	if len(opts.Deps) > 0 {
 		sb.WriteString("\n# 安装依赖\n")
 		for _, dep := range opts.Deps {
@@ -104,14 +115,14 @@ func Generate(opts Options) (string, error) {
 		}
 	}
 
-	// 7. 清理安装缓存
+	// 8. 清理安装缓存
 	sb.WriteString("\n# 清理安装缓存\n")
 	sb.WriteString("RUN npm cache clean --force 2>/dev/null || true && \\\n")
 	sb.WriteString("    pip3 cache purge 2>/dev/null || true && \\\n")
 	sb.WriteString("    yum clean all 2>/dev/null || true && \\\n")
 	sb.WriteString("    rm -rf /tmp/*\n")
 
-	// 8. 默认 entrypoint
+	// 9. 默认 entrypoint
 	sb.WriteString("\n# 默认命令\n")
 	sb.WriteString("CMD [\"/bin/bash\"]\n")
 
@@ -130,7 +141,6 @@ func applyGHProxy(commands []string, ghProxy string) []string {
 		cmd = strings.ReplaceAll(cmd, "https://go.dev/dl/", ghProxy+"https://go.dev/dl/")
 		// 替换 github.com 链接
 		cmd = strings.ReplaceAll(cmd, "https://github.com/", ghProxy+"https://github.com/")
-		// 替换 nodesource 链接（不受 gh-proxy 影响）
 		result[i] = cmd
 	}
 	return result
