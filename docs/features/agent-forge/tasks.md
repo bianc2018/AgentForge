@@ -306,7 +306,7 @@
 
 ### T-29: 实现 IT-3 ArgsPersistence 和 IT-6 RunEngine 集成测试
 
-- [ ] 编写 ArgsPersistence 集成测试（IT-3）：在真实临时文件系统上验证 save 写入、load 读取、load 文件不存在返回 ErrFileNotFound、数据往返完整性、包含多值参数的序列化/反序列化。编写 RunEngine 集成测试（IT-6）：在真实 Docker Engine 上验证容器创建、启动、端口映射、只读挂载、环境变量、工作目录、特权模式（仅限 `--docker`）、bash 模式、后台命令模式。测试后清理所有创建的容器。
+- [x] 编写 ArgsPersistence 集成测试（IT-3）：在真实临时文件系统上验证 save 写入、load 读取、load 文件不存在返回 ErrFileNotFound、数据往返完整性、包含多值参数的序列化/反序列化。编写 RunEngine 集成测试（IT-6）：在真实 Docker Engine 上验证容器创建、启动、端口映射、只读挂载、环境变量、工作目录、特权模式（仅限 `--docker`）、bash 模式、后台命令模式。测试后清理所有创建的容器。
 
 **可追溯性:** REQ-9 · REQ-10 · REQ-11 · REQ-12 · REQ-13 · REQ-14 · REQ-15 · REQ-18 · NFR-7 · NFR-8 · NFR-12
 **依赖:** T-23 · T-24
