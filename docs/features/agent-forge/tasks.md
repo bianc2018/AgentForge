@@ -163,7 +163,7 @@
 
 ### T-16: 覆盖 Scenario "构建过程中网络错误时自动重试" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 构建过程中首次请求 GitHub 资源超时`（模拟网络错误）、`When 开发者执行 build -d claude --max-retry 3 --gh-proxy https://gh-proxy.example.com`、`Then 系统按指数退避策略自动重试`、`And 在三次重试内构建成功`、`And 构建过程退出码为 0`。
+- [x] 实现 Gherkin step definitions：`Given 构建过程中首次请求 GitHub 资源超时`（模拟网络错误）、`When 开发者执行 build -d claude --max-retry 3 --gh-proxy https://gh-proxy.example.com`、`Then 系统按指数退避策略自动重试`、`And 在三次重试内构建成功`、`And 构建过程退出码为 0`。
 
 **可追溯性:** REQ-4 · REQ-5 · NFR-10 · Scenario: "构建过程中网络错误时自动重试"
 **依赖:** T-08
