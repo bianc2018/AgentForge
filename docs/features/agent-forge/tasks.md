@@ -451,7 +451,7 @@
 
 ### T-42: 实现 EndpointManager 的 endpoint add 交互式缺参提示模式
 
-- [ ] 实现 `endpoint add <name>` 缺少必要参数时的交互模式：逐一检测缺失的配置项，对每个缺失项提示参数名称、预期的值格式和可选值列表（如 `--provider` 的可选值：deepseek / openai / anthropic）；逐项读取用户输入；输入完整后统一执行配置写入（NFR-14）。
+- [x] 实现 `endpoint add <name>` 缺少必要参数时的交互模式：逐一检测缺失的配置项，对每个缺失项提示参数名称、预期的值格式和可选值列表（如 `--provider` 的可选值：deepseek / openai / anthropic）；逐项读取用户输入；输入完整后统一执行配置写入（NFR-14）。
 
 **可追溯性:** REQ-23 · NFR-14
 **依赖:** T-40 · T-41
@@ -461,7 +461,7 @@
 
 ### T-43: 实现 EndpointManager 的 endpoint providers/list/show 查看命令
 
-- [ ] 实现 `endpoint providers`：从 Provider-Agent Matrix 读取数据，输出服务商与可服务 agent 的对照表。实现 `endpoint list`：遍历 `endpoints/` 目录，读取每个端点的 PROVIDER 和 MODEL，以 NAME/PROVIDER/MODEL 三列表格输出。实现 `endpoint show <name>`：读取指定端点的全部配置字段，KEY 字段做掩码处理（前 8 字符 + `***` + 后 4 字符，NFR-6）；端点不存在时输出错误并退出码 1。
+- [x] 实现 `endpoint providers`：从 Provider-Agent Matrix 读取数据，输出服务商与可服务 agent 的对照表。实现 `endpoint list`：遍历 `endpoints/` 目录，读取每个端点的 PROVIDER 和 MODEL，以 NAME/PROVIDER/MODEL 三列表格输出。实现 `endpoint show <name>`：读取指定端点的全部配置字段，KEY 字段做掩码处理（前 8 字符 + `***` + 后 4 字符，NFR-6）；端点不存在时输出错误并退出码 1。
 
 **可追溯性:** REQ-19 · REQ-20 · REQ-21 · NFR-5 · NFR-6
 **依赖:** T-39 · T-40

@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/agent-forge/cli/internal/endpoint/endpointmanager"
+	"github.com/agent-forge/cli/internal/endpoint/provideragentmatrix"
 	"github.com/agent-forge/cli/internal/shared/configresolver"
 )
 
@@ -38,15 +42,22 @@ var endpointAddCmd = &cobra.Command{
 --model-opus, --model-sonnet, --model-haiku, --model-subagent），
 所有参数齐全时直接创建 endpoint.env 文件。
 
+当必要参数（--provider、--url、--key）缺失时，自动进入交互式
+配置模式（NFR-14/REQ-23），逐一提示用户输入缺失的配置项。
+
 如果同名端点已存在，返回错误（退出码 1）。
 创建成功后文件权限为 0600（NFR-9）。
 
 示例：
+  # 带全部参数直接创建
   agent-forge endpoint add my-ep \
     --provider openai \
     --url https://api.openai.com \
     --key sk-test-key-value \
-    --model gpt-4`,
+    --model gpt-4
+
+  # 缺参交互式创建
+  agent-forge endpoint add my-ep`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -60,6 +71,65 @@ var endpointAddCmd = &cobra.Command{
 		modelSonnet, _ := cmd.Flags().GetString("model-sonnet")
 		modelHaiku, _ := cmd.Flags().GetString("model-haiku")
 		modelSubagent, _ := cmd.Flags().GetString("model-subagent")
+
+		// --- 交互式缺参提示模式 (REQ-23/NFR-14) ---
+		// 当必要参数（provider、url、key）缺失时，进入交互模式逐一提示
+		if provider == "" || url == "" || key == "" {
+			fmt.Println("进入交互式配置模式（缺少必要参数，请逐项输入）...")
+
+			if provider == "" {
+				fmt.Print("请输入 provider (可选值: deepseek/openai/anthropic): ")
+				input, err := promptForInput()
+				if err != nil {
+					return newExitCodeError(1,
+						fmt.Sprintf("原因: 读取用户输入失败\n"+
+							"上下文: 正在交互式创建端点 %s\n"+
+							"建议: 请确保标准输入可用，或通过命令行参数直接提供配置值",
+							name),
+					)
+				}
+				provider = input
+			}
+			if url == "" {
+				fmt.Print("请输入 API URL (如 https://api.openai.com): ")
+				input, err := promptForInput()
+				if err != nil {
+					return newExitCodeError(1,
+						fmt.Sprintf("原因: 读取用户输入失败\n"+
+							"上下文: 正在交互式创建端点 %s\n"+
+							"建议: 请确保标准输入可用，或通过命令行参数直接提供配置值",
+							name),
+					)
+				}
+				url = input
+			}
+			if key == "" {
+				fmt.Print("请输入 API key: ")
+				input, err := promptForInput()
+				if err != nil {
+					return newExitCodeError(1,
+						fmt.Sprintf("原因: 读取用户输入失败\n"+
+							"上下文: 正在交互式创建端点 %s\n"+
+							"建议: 请确保标准输入可用，或通过命令行参数直接提供配置值",
+							name),
+					)
+				}
+				key = input
+			}
+			if model == "" {
+				fmt.Print("请输入默认模型 (可选，直接回车跳过): ")
+				input, err := promptForInput()
+				if err != nil {
+					return newExitCodeError(1,
+						fmt.Sprintf("原因: 读取用户输入失败\n"+
+							"上下文: 正在交互式创建端点 %s\n"+
+							"建议: 请确保标准输入可用，或通过命令行参数直接提供配置值",
+							name),
+					)
+				}
+				model = input
+			}
+		}
 
 		// --- 解析配置目录 ---
 		configFlag, _ := cmd.Flags().GetString("config")
@@ -111,7 +181,187 @@ var endpointAddCmd = &cobra.Command{
 	},
 }
 
+// endpointProvidersCmd represents the endpoint providers subcommand
+//
+// 列出所有受支持的 LLM 服务商及其可服务的 AI agent。
+// 数据来源为 Provider-Agent Matrix 静态映射表（REQ-19）。
+// 符合 NFR-5（1秒内完成）要求，纯内存操作无需 I/O。
+var endpointProvidersCmd = &cobra.Command{
+	Use:   "providers",
+	Short: "列出所有支持的 LLM 服务商及其可服务的 AI agent",
+	Long: `列出所有支持的 LLM 服务商及其可服务的 AI agent。
+
+从 Provider-Agent Matrix 静态映射表读取数据，
+输出服务商与可服务 agent 的对照表（REQ-19）。
+
+每个 provider 及其可服务的 agent 列表在 1 秒内输出（NFR-5）。`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		providers := provideragentmatrix.GetProviders()
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "PROVIDER\t可服务的 Agent")
+		fmt.Fprintln(w, "--------\t---------------")
+
+		for _, p := range providers {
+			agents := provideragentmatrix.GetAgentsForProvider(p)
+			fmt.Fprintf(w, "%s\t%s\n", p, strings.Join(agents, ", "))
+		}
+
+		return w.Flush()
+	},
+}
+
+// endpointListCmd represents the endpoint list subcommand
+//
+// 以表格形式列出所有已配置的 LLM 端点，包含 NAME、PROVIDER 和 MODEL 三列（REQ-20）。
+// 遍历 <config-dir>/endpoints/ 目录下的每个子目录，读取 endpoint.env 获取 PROVIDER 和 MODEL。
+// 如果端点目录不存在（首次使用时），输出空表头并正常退出。
+var endpointListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "列出所有端点的名称、服务商和模型",
+	Long: `以表格形式列出所有已配置的 LLM 端点。
+
+遍历端点配置目录下的所有端点，读取每个端点的 PROVIDER 和 MODEL 字段，
+以 NAME / PROVIDER / MODEL 三列表格输出（REQ-20）。
+
+示例：
+  NAME          PROVIDER    MODEL
+  my-ep         openai      gpt-4
+  deepseek-ep   deepseek    deepseek-chat`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		configFlag, _ := cmd.Flags().GetString("config")
+		configDir, err := configresolver.Resolve(configFlag)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 解析配置目录失败\n"+
+					"上下文: 正在为 endpoint list 命令解析配置目录路径\n"+
+					"建议: 请确认 -c 参数指定的路径有效，或使用默认路径\n"+
+					"错误详情: %s", err.Error()),
+			)
+		}
+
+		endpointsDir := filepath.Join(configDir, "endpoints")
+
+		// 如果端点目录不存在，输出空表头正常退出
+		entries, err := os.ReadDir(endpointsDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+				fmt.Fprintln(w, "NAME\tPROVIDER\tMODEL")
+				fmt.Fprintln(w, "----\t--------\t-----")
+				return w.Flush()
+			}
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 读取端点目录失败\n"+
+					"上下文: 正在读取端点配置目录 %s\n"+
+					"建议: 请确认配置目录存在且有读取权限\n"+
+					"错误详情: %s", endpointsDir, err.Error()),
+			)
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "NAME\tPROVIDER\tMODEL")
+		fmt.Fprintln(w, "----\t--------\t-----")
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			epDir := filepath.Join(endpointsDir, name)
+			cfg, err := endpointmanager.ReadEndpointConfig(epDir)
+			if err != nil {
+				// 无法读取时输出占位符确保表格对齐
+				fmt.Fprintf(w, "%s\t(error)\t(error)\n", name)
+				continue
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\n", name, cfg.Provider, cfg.Model)
+		}
+
+		return w.Flush()
+	},
+}
+
+// endpointShowCmd represents the endpoint show subcommand
+//
+// 查看指定端点的详细配置，所有字段完整显示（REQ-21）。
+// API key 前 8 位字符 + "***" + 后 4 位字符的掩码格式显示（NFR-6）。
+// 端点不存在时返回退出码 1。
+var endpointShowCmd = &cobra.Command{
+	Use:   "show <name>",
+	Short: "查看指定端点的详细配置",
+	Long: `查看指定 LLM 端点的全部配置字段。
+
+API key 以前 8 位字符 + *** + 后 4 位字符的掩码格式显示（NFR-6/REQ-21）。
+端点不存在时返回退出码 1。
+
+示例：
+  agent-forge endpoint show my-ep
+
+输出：
+  名称:           my-ep
+  Provider:       openai
+  URL:            https://api.openai.com
+  Key:            sk-test-***alue
+  Model:          gpt-4`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		configFlag, _ := cmd.Flags().GetString("config")
+		configDir, err := configresolver.Resolve(configFlag)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 解析配置目录失败\n"+
+					"上下文: 正在为 endpoint show 命令解析配置目录路径\n"+
+					"建议: 请确认 -c 参数指定的路径有效，或使用默认路径\n"+
+					"错误详情: %s", err.Error()),
+			)
+		}
+
+		endpointDir := filepath.Join(configDir, "endpoints", name)
+
+		cfg, err := endpointmanager.ReadEndpointConfig(endpointDir)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 读取端点配置失败\n"+
+					"上下文: 正在查看端点 %s 的配置\n"+
+					"建议: 请确认端点 %s 已存在，或使用 endpoint list 查看所有可用端点\n"+
+					"错误详情: %s", name, name, err.Error()),
+			)
+		}
+
+		// 使用 tabwriter 对齐显示全部字段，KEY 做掩码处理 (NFR-6)
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintf(w, "名称:\t%s\n", name)
+		fmt.Fprintf(w, "Provider:\t%s\n", cfg.Provider)
+		fmt.Fprintf(w, "URL:\t%s\n", cfg.URL)
+		fmt.Fprintf(w, "Key:\t%s\n", endpointmanager.MaskKey(cfg.Key))
+		fmt.Fprintf(w, "Model:\t%s\n", cfg.Model)
+
+		if cfg.ModelOpus != "" {
+			fmt.Fprintf(w, "Model (Opus):\t%s\n", cfg.ModelOpus)
+		}
+		if cfg.ModelSonnet != "" {
+			fmt.Fprintf(w, "Model (Sonnet):\t%s\n", cfg.ModelSonnet)
+		}
+		if cfg.ModelHaiku != "" {
+			fmt.Fprintf(w, "Model (Haiku):\t%s\n", cfg.ModelHaiku)
+		}
+		if cfg.ModelSubagent != "" {
+			fmt.Fprintf(w, "Model (Subagent):\t%s\n", cfg.ModelSubagent)
+		}
+
+		return w.Flush()
+	},
+}
+
 func init() {
+	endpointCmd.AddCommand(endpointProvidersCmd)
+	endpointCmd.AddCommand(endpointListCmd)
+	endpointCmd.AddCommand(endpointShowCmd)
 	endpointCmd.AddCommand(endpointAddCmd)
 
 	endpointAddCmd.Flags().String("provider", "", "LLM 服务商（deepseek / openai / anthropic）")
@@ -124,4 +374,14 @@ func init() {
 	endpointAddCmd.Flags().String("model-subagent", "", "Subagent 模型")
 
 	endpointCmd.PersistentFlags().StringP("config", "c", "", "配置目录路径")
+}
+
+// promptForInput 从标准输入读取一行用户输入，去除首尾空白。
+func promptForInput() (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(input), nil
 }
