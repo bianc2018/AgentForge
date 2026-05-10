@@ -386,7 +386,7 @@
 
 ### T-37: 实现 ST-2 非特权容器默认安全模式测试
 
-- [ ] 编写安全测试 ST-2：验证默认 `run` 无 `--docker`/`--dind` 时容器 `Privileged=false` 且 `User` 非 root；`run -a claude` 为非特权模式；`run --docker` 时 `Privileged=true` 且 `User="root"`。
+- [x] 编写安全测试 ST-2：验证默认 `run` 无 `--docker`/`--dind` 时容器 `Privileged=false` 且 `User` 非 root；`run -a claude` 为非特权模式；`run --docker` 时 `Privileged=true` 且 `User="root"`。
 
 **可追溯性:** NFR-7
 **依赖:** T-23
