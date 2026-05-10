@@ -256,7 +256,7 @@
 
 ### T-24: 在 RunEngine 中实现 recall 恢复和后台命令模式
 
-- [ ] 在 RunEngine 中实现 `-r/--recall` 模式：调用 Args Persistence 从 `.last_args` 读取参数，使用恢复的参数集执行完整的 run 流程。实现 `--run <command>` 后台命令模式：`AutoRemove=true`，Cmd 为指定命令，无 Tty 交互；通过 `ContainerWait` 获取容器退出码并传递为 CLI 退出码。
+- [x] 在 RunEngine 中实现 `-r/--recall` 模式：调用 Args Persistence 从 `.last_args` 读取参数，使用恢复的参数集执行完整的 run 流程。实现 `--run <command>` 后台命令模式：`AutoRemove=true`，Cmd 为指定命令，无 Tty 交互；通过 `ContainerWait` 获取容器退出码并传递为 CLI 退出码。
 
 **可追溯性:** REQ-16 · REQ-17 · REQ-18 · NFR-12
 **依赖:** T-20 · T-22

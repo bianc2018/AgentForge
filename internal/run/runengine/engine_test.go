@@ -461,7 +461,122 @@ func TestAssembleContainerConfig_CmdType(t *testing.T) {
 
 // TestNew 验证 Engine 构造函数。
 func TestNew(t *testing.T) {
-	// New 需要 Docker Helper 客户端，跳过实际创建
+	// New 需要 Docker Helper 客户端和配置目录，跳过实际创建
 	// 此处仅验证 New 函数签名正确
-	_ = New(nil)
+	_ = New(nil, "")
+}
+
+// TestAssembleContainerConfig_RunCommandMode 验证后台命令模式的配置组装。
+//
+// 对应 UT-17 覆盖案例：后台命令模式 — AutoRemove=true, Tty=false,
+// Cmd 为 ["bash", "-c", "命令"], 无 wrapper 环境变量
+func TestAssembleContainerConfig_RunCommandMode(t *testing.T) {
+	params := argsparser.RunParams{
+		RunCmd: "npm test",
+	}
+
+	config, hostConfig, _ := AssembleContainerConfig(params, "")
+
+	// 验证 AutoRemove 已启用
+	if !hostConfig.AutoRemove {
+		t.Error("AutoRemove = false, want true for run command mode")
+	}
+
+	// 验证 Tty 已关闭
+	if config.Tty {
+		t.Error("Tty = true, want false for run command mode")
+	}
+
+	// 验证 OpenStdin 已关闭
+	if config.OpenStdin {
+		t.Error("OpenStdin = true, want false for run command mode")
+	}
+
+	// 验证 AttachStdin 已关闭
+	if config.AttachStdin {
+		t.Error("AttachStdin = true, want false for run command mode")
+	}
+
+	// 验证 AttachStdout 和 AttachStderr 仍打开
+	if !config.AttachStdout {
+		t.Error("AttachStdout = false, want true")
+	}
+	if !config.AttachStderr {
+		t.Error("AttachStderr = false, want true")
+	}
+
+	// 验证 Cmd 为 ["bash", "-c", "npm test"]
+	if len(config.Cmd) != 3 {
+		t.Fatalf("len(Cmd) = %d, want 3", len(config.Cmd))
+	}
+	if config.Cmd[0] != "bash" {
+		t.Errorf("Cmd[0] = %q, want %q", config.Cmd[0], "bash")
+	}
+	if config.Cmd[1] != "-c" {
+		t.Errorf("Cmd[1] = %q, want %q", config.Cmd[1], "-c")
+	}
+	if config.Cmd[2] != "npm test" {
+		t.Errorf("Cmd[2] = %q, want %q", config.Cmd[2], "npm test")
+	}
+
+	// 验证无 AGENTFORGE_WRAPPER 环境变量
+	for _, e := range config.Env {
+		if strings.HasPrefix(e, "AGENTFORGE_WRAPPER=") {
+			t.Errorf("Run command mode should not have AGENTFORGE_WRAPPER, got: %s", e)
+		}
+	}
+}
+
+// TestAssembleContainerConfig_RunCommandModeWithDocker 验证后台命令模式 + Docker 模式。
+//
+// 验证 --run 与 --docker 同时指定时：Cmd 为后台命令，Privileged 仍启用。
+func TestAssembleContainerConfig_RunCommandModeWithDocker(t *testing.T) {
+	params := argsparser.RunParams{
+		RunCmd: "docker ps",
+		Docker: true,
+	}
+
+	config, hostConfig, _ := AssembleContainerConfig(params, "")
+
+	// 验证 AutoRemove 已启用
+	if !hostConfig.AutoRemove {
+		t.Error("AutoRemove = false, want true for run command mode")
+	}
+
+	// 验证 Tty 已关闭
+	if config.Tty {
+		t.Error("Tty = true, want false for run command mode")
+	}
+
+	// 验证 Privileged 仍然可用（--docker 标志）
+	if !hostConfig.Privileged {
+		t.Error("Privileged = false, want true when --docker is specified")
+	}
+
+	// 验证 User 为 root
+	if config.User != "root" {
+		t.Errorf("User = %q, want %q", config.User, "root")
+	}
+
+	// 验证 Cmd 为 ["bash", "-c", "docker ps"]
+	if len(config.Cmd) != 3 || config.Cmd[0] != "bash" || config.Cmd[1] != "-c" || config.Cmd[2] != "docker ps" {
+		t.Errorf("Cmd = %v, want [bash -c docker ps]", config.Cmd)
+	}
+}
+
+// TestExitCodeError 验证 ExitCodeError 类型。
+//
+// 验证错误消息格式和 ExitCode 字段。
+func TestExitCodeError(t *testing.T) {
+	err := &ExitCodeError{ExitCode: 42}
+	if err.ExitCode != 42 {
+		t.Errorf("ExitCode = %d, want 42", err.ExitCode)
+	}
+	errMsg := err.Error()
+	if errMsg == "" {
+		t.Error("Error() returned empty string")
+	}
+	if !strings.Contains(errMsg, "42") {
+		t.Errorf("Error() = %q, should contain '42'", errMsg)
+	}
 }

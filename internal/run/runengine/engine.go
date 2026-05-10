@@ -9,6 +9,7 @@ package runengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/go-connections/nat"
 
+	"github.com/agent-forge/cli/internal/run/argspersistence"
 	"github.com/agent-forge/cli/internal/run/wrapperloader"
 	"github.com/agent-forge/cli/internal/shared/argsparser"
 	"github.com/agent-forge/cli/internal/shared/dockerhelper"
@@ -36,16 +38,29 @@ while ! docker info >/dev/null 2>&1; do
 done
 exec %s`
 
+// ExitCodeError 表示容器以指定退出码退出。
+//
+// 用于 --run 后台命令模式，将容器退出码传递到 CLI 层。
+type ExitCodeError struct {
+	ExitCode int
+}
+
+func (e *ExitCodeError) Error() string {
+	return fmt.Sprintf("命令以退出码 %d 结束", e.ExitCode)
+}
+
 // Engine 是运行引擎，负责编排完整的容器运行流程。
 type Engine struct {
-	helper *dockerhelper.Client
+	helper    *dockerhelper.Client
+	configDir string
 }
 
 // New 创建新的运行引擎。
 //
-// 需要已经初始化的 Docker Helper 客户端。
-func New(helper *dockerhelper.Client) *Engine {
-	return &Engine{helper: helper}
+// 需要已经初始化的 Docker Helper 客户端和配置目录路径。
+// configDir 用于 --recall 模式读取 .last_args 文件，以及每次运行后持久化参数。
+func New(helper *dockerhelper.Client, configDir string) *Engine {
+	return &Engine{helper: helper, configDir: configDir}
 }
 
 // AssembleContainerConfig 根据运行参数组装 ContainerCreate 所需的配置结构体。
@@ -95,11 +110,14 @@ func AssembleContainerConfig(params argsparser.RunParams, wrapperScript string) 
 		}
 	}
 
+	// 后台命令模式：关闭 Tty 交互，不挂载 Stdin
+	isRunCmdMode := params.RunCmd != ""
+
 	config := &container.Config{
 		Image:        ImageName,
-		Tty:          true,
-		OpenStdin:    true,
-		AttachStdin:  true,
+		Tty:          !isRunCmdMode,
+		OpenStdin:    !isRunCmdMode,
+		AttachStdin:  !isRunCmdMode,
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmd,
@@ -145,10 +163,13 @@ func AssembleContainerConfig(params argsparser.RunParams, wrapperScript string) 
 		})
 	}
 
+	// 后台命令模式启用 AutoRemove，交互模式不自动删除
+	autoRemove := isRunCmdMode
+
 	hostConfig := &container.HostConfig{
 		PortBindings: portBindings,
 		Mounts:       mounts,
-		AutoRemove:   false, // 交互模式不自动删除
+		AutoRemove:   autoRemove,
 	}
 
 	// Docker-in-Docker 模式：设置特权模式
@@ -165,11 +186,17 @@ func AssembleContainerConfig(params argsparser.RunParams, wrapperScript string) 
 // buildCmd 根据运行模式构建容器入口命令。
 //
 // 支持四种运行模式：
-//  1. Docker-in-Docker + agent：启动 dockerd 后执行 agent 命令
-//  2. Docker-in-Docker + bash：启动 dockerd 后进入 bash（加载 wrapper）
-//  3. Agent 模式：直接执行 agent 命令
-//  4. Bash 模式（默认）：启动 bash（加载 wrapper）
+//  1. 后台命令模式（--run）：直接执行指定命令，bash -c <command>
+//  2. Docker-in-Docker + agent：启动 dockerd 后执行 agent 命令
+//  3. Docker-in-Docker + bash：启动 dockerd 后进入 bash（加载 wrapper）
+//  4. Agent 模式：直接执行 agent 命令
+//  5. Bash 模式（默认）：启动 bash（加载 wrapper）
 func buildCmd(params argsparser.RunParams, wrapperScript string) strslice.StrSlice {
+	// 后台命令模式：直接执行指定命令，Tty=false
+	if params.RunCmd != "" {
+		return strslice.StrSlice{"bash", "-c", params.RunCmd}
+	}
+
 	if params.Docker {
 		// Docker-in-Docker 模式
 		var finalCmd string
@@ -198,25 +225,45 @@ func buildCmd(params argsparser.RunParams, wrapperScript string) strslice.StrSli
 // Run 执行容器运行流程。
 //
 // 流程：
-//  1. 如果为 bash 模式，从 Wrapper Loader 生成 wrapper 函数脚本
-//  2. 调用 AssembleContainerConfig 组装配置
-//  3. 调用 Docker Helper 的 ContainerCreate 创建容器
-//  4. 调用 Docker Helper 的 ContainerStart 启动容器
-//  5. 调用 Docker Helper 的 ContainerAttach 附加到容器流
+//  1. 如果是 recall 模式（-r/--recall），从 Args Persistence 读取 .last_args 恢复参数
+//  2. 如果为 bash 模式，从 Wrapper Loader 生成 wrapper 函数脚本
+//  3. 调用 AssembleContainerConfig 组装配置
+//  4. 调用 Docker Helper 的 ContainerCreate 创建容器
+//  5. 调用 Docker Helper 的 ContainerStart 启动容器
 //
-// 在 agent 模式和 bash 模式下，attach 使标准输入/输出/错误流连接到容器终端。
-// 在 Docker-in-Docker 模式下，容器启动后 dockerd 守护进程自动启动。
+// 在 agent 模式和 bash 模式下，附加到容器流（Tty 交互式）。
+// 在后台命令模式（--run）下，通过 ContainerWait 等待容器退出，
+// 传递退出码为 ExitCodeError。
+//
+// 每次成功运行后将参数持久化到 .last_args 文件（NFR-12），
+// 但 recall 模式不会重复持久化已保存的参数。
 func (e *Engine) Run(ctx context.Context, params argsparser.RunParams) error {
-	// bash 模式下生成 wrapper 脚本
+	// --- 步骤 1: 处理 recall 模式 ---
+	if params.Recall {
+		p := argspersistence.New(e.configDir)
+		loaded, err := p.Load()
+		if err != nil {
+			if errors.Is(err, argspersistence.ErrFileNotFound) {
+				return err // REQ-17: 文件不存在，不启动容器
+			}
+			return fmt.Errorf("读取 .last_args 失败: %w", err)
+		}
+		// 使用恢复的参数集，保留当前配置目录
+		params = *loaded
+		params.Recall = false
+	}
+
+	// --- 步骤 2: bash 模式下生成 wrapper 脚本 ---
 	var wrapperScript string
-	if params.Agent == "" {
+	if params.Agent == "" && params.RunCmd == "" {
 		wl := wrapperloader.New()
 		wrapperScript = wl.Generate()
 	}
 
+	// --- 步骤 3: 组装容器配置 ---
 	config, hostConfig, networkingConfig := AssembleContainerConfig(params, wrapperScript)
 
-	// 创建容器
+	// --- 步骤 4: 创建容器 ---
 	resp, err := e.helper.ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, "")
 	if err != nil {
 		return fmt.Errorf("创建容器失败: %w", err)
@@ -224,12 +271,33 @@ func (e *Engine) Run(ctx context.Context, params argsparser.RunParams) error {
 
 	containerID := resp.ID
 
-	// 启动容器
+	// --- 步骤 5: 启动容器 ---
 	if err := e.helper.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("启动容器失败: %w", err)
 	}
 
-	// 附加到容器（交互模式）
+	// --- 步骤 6: 后台命令模式（--run）---
+	if params.RunCmd != "" {
+		// 持久化参数（仅非 recall 模式）
+		p := argspersistence.New(e.configDir)
+		if saveErr := p.Save(params); saveErr != nil {
+			return fmt.Errorf("持久化运行参数失败: %w", saveErr)
+		}
+
+		// 等待容器退出
+		statusCh, errCh := e.helper.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+		select {
+		case status := <-statusCh:
+			if status.StatusCode != 0 {
+				return &ExitCodeError{ExitCode: int(status.StatusCode)}
+			}
+			return nil
+		case err := <-errCh:
+			return fmt.Errorf("等待容器退出失败: %w", err)
+		}
+	}
+
+	// --- 步骤 7: 交互模式 — 附加到容器 ---
 	attachResp, err := e.helper.ContainerAttach(ctx, containerID, types.ContainerAttachOptions{
 		Stream: true,
 		Stdin:  true,
@@ -240,6 +308,12 @@ func (e *Engine) Run(ctx context.Context, params argsparser.RunParams) error {
 		return fmt.Errorf("附加到容器失败: %w", err)
 	}
 	defer attachResp.Close()
+
+	// --- 步骤 8: 持久化运行参数（NFR-12）---
+	p := argspersistence.New(e.configDir)
+	if saveErr := p.Save(params); saveErr != nil {
+		return fmt.Errorf("持久化运行参数失败: %w", saveErr)
+	}
 
 	return nil
 }
