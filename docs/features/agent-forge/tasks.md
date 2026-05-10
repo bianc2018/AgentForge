@@ -346,7 +346,7 @@
 
 ### T-33: 覆盖 Scenario "通过 -r 参数恢复上次运行参数启动容器" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 开发者之前执行过一次 run -a claude -p 3000:3000 -m /host/data`、`And .last_args 文件已自动持久化上次运行的全部参数`、`When 开发者执行 run -r`、`Then 系统从 .last_args 文件恢复上次运行的完整参数`、`And 容器以与上次运行完全相同的配置启动`、`And 容器内 claude 交互式终端可用，端口 3000 已映射，/host/data 目录已挂载`。
+- [x] 实现 Gherkin step definitions：`Given 开发者之前执行过一次 run -a claude -p 3000:3000 -m /host/data`、`And .last_args 文件已自动持久化上次运行的全部参数`、`When 开发者执行 run -r`、`Then 系统从 .last_args 文件恢复上次运行的完整参数`、`And 容器以与上次运行完全相同的配置启动`、`And 容器内 claude 交互式终端可用，端口 3000 已映射，/host/data 目录已挂载`。
 
 **可追溯性:** REQ-16 · NFR-12 · Scenario: "通过 -r 参数恢复上次运行参数启动容器"
 **依赖:** T-24

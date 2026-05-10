@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 
+	"github.com/agent-forge/cli/internal/run/argspersistence"
 	"github.com/agent-forge/cli/internal/run/wrapperloader"
 	"github.com/agent-forge/cli/internal/shared/argsparser"
 	"github.com/agent-forge/cli/internal/shared/dockerhelper"
@@ -723,4 +725,261 @@ echo "DOCKERD_TIMEOUT"`
 	}
 
 	t.Log("E2E 测试 GH-8 Docker-in-Docker 模式全部验证通过")
+}
+
+// TestE2E_GH9_RecallMode 覆盖 GH-9 Scenario "通过 -r 参数恢复上次运行参数启动容器"。
+//
+// Given 开发者之前执行过一次 run -a claude -p 3000:3000 -m /host/data
+// And .last_args 文件已自动持久化上次运行的全部参数
+// When 开发者执行 run -r
+// Then 系统从 .last_args 文件恢复上次运行的完整参数
+// And 容器以与上次运行完全相同的配置启动
+// And 容器内 claude 交互式终端可用，端口 3000 已映射，/host/data 目录已挂载
+func TestE2E_GH9_RecallMode(t *testing.T) {
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker Engine 未运行，跳过 E2E 测试: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	ensureImageExists(t, ctx, helper)
+
+	// 创建临时配置目录和挂载目录
+	configDir := t.TempDir()
+	t.Logf("临时配置目录: %s", configDir)
+
+	hostMountDir := t.TempDir()
+	t.Logf("宿主机挂载目录: %s", hostMountDir)
+
+	port := freePort()
+	if port == 0 {
+		port = 3000
+	}
+	portMapping := fmt.Sprintf("%d:3000", port)
+	t.Logf("使用端口映射: %s", portMapping)
+
+	// 模拟上次 run 持久化的参数
+	savedParams := argsparser.RunParams{
+		Agent:   "claude",
+		Ports:   []string{portMapping},
+		Mounts:  []string{hostMountDir},
+		Workdir: "/workspace",
+		Envs:    []string{"OPENAI_KEY=sk-xxx"},
+	}
+
+	p := argspersistence.New(configDir)
+	if err := p.Save(savedParams); err != nil {
+		t.Fatalf("Persistence.Save() error = %v", err)
+	}
+
+	// 验证 .last_args 文件已持久化
+	lastArgsPath := configDir + "/" + argspersistence.LastArgsFileName
+	if _, err := os.Stat(lastArgsPath); os.IsNotExist(err) {
+		t.Fatalf(".last_args 文件不存在: %s", lastArgsPath)
+	}
+	t.Logf(".last_args 文件存在: %s", lastArgsPath)
+
+	// Load 恢复参数并验证 roundtrip
+	loadedParams, err := p.Load()
+	if err != nil {
+		t.Fatalf("Persistence.Load() error = %v", err)
+	}
+
+	if loadedParams.Agent != savedParams.Agent {
+		t.Errorf("Agent = %q, want %q", loadedParams.Agent, savedParams.Agent)
+	}
+	if len(loadedParams.Ports) != 1 || loadedParams.Ports[0] != portMapping {
+		t.Errorf("Ports = %v, want [%s]", loadedParams.Ports, portMapping)
+	}
+	if len(loadedParams.Mounts) != 1 || loadedParams.Mounts[0] != hostMountDir {
+		t.Errorf("Mounts = %v, want [%s]", loadedParams.Mounts, hostMountDir)
+	}
+	if loadedParams.Workdir != "/workspace" {
+		t.Errorf("Workdir = %q, want %q", loadedParams.Workdir, "/workspace")
+	}
+	if len(loadedParams.Envs) != 1 || loadedParams.Envs[0] != "OPENAI_KEY=sk-xxx" {
+		t.Errorf("Envs = %v, want [OPENAI_KEY=sk-xxx]", loadedParams.Envs)
+	}
+	t.Log("参数恢复 roundtrip 验证通过: 调用 Persistence.Load() 返回与原始一致的 RunParams")
+
+	// 使用恢复的参数组装容器配置
+	config, hostConfig, netConfig := AssembleContainerConfig(*loadedParams, "")
+
+	// 用 sleep 命令替代 claude
+	config.Cmd = []string{"sleep", "300"}
+	hostConfig.AutoRemove = false
+
+	resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+	if err != nil {
+		t.Fatalf("ContainerCreate() error = %v", err)
+	}
+	containerID := resp.ID
+	t.Logf("容器创建成功, ID: %s", containerID)
+
+	defer func() {
+		if removeErr := helper.ContainerRemove(ctx, containerID, true, false); removeErr != nil {
+			t.Logf("清理容器 %s 时出现非致命错误: %v", containerID, removeErr)
+		}
+	}()
+
+	if err := helper.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+		t.Fatalf("ContainerStart() error = %v", err)
+	}
+
+	if !containerRunning(t, helper, ctx, containerID) {
+		t.Fatal("容器启动后状态不是 running")
+	}
+
+	// docker inspect 验证配置
+	inspectData := inspectContainer(t, containerID)
+
+	// 验证 Tty=true（交互式终端）
+	ttyVal := getContainerField(inspectData, "Config", "Tty")
+	tty, ok := ttyVal.(bool)
+	if !ok {
+		t.Fatalf("Config.Tty 类型错误: %T", ttyVal)
+	}
+	if !tty {
+		t.Error("Config.Tty = false, want true (interactive terminal)")
+	} else {
+		t.Log("Config.Tty = true 验证通过 (recall 模式)")
+	}
+
+	// 验证 OpenStdin=true
+	stdinVal := getContainerField(inspectData, "Config", "OpenStdin")
+	openStdin, ok := stdinVal.(bool)
+	if !ok {
+		t.Fatalf("Config.OpenStdin 类型错误: %T", stdinVal)
+	}
+	if !openStdin {
+		t.Error("Config.OpenStdin = false, want true")
+	} else {
+		t.Log("Config.OpenStdin = true 验证通过 (recall 模式)")
+	}
+
+	// 验证端口 3000 已映射
+	portBindingsVal := getContainerField(inspectData, "HostConfig", "PortBindings")
+	portBindings, ok := portBindingsVal.(map[string]interface{})
+	if !ok {
+		t.Fatalf("PortBindings 类型错误: %T", portBindingsVal)
+	}
+	foundPort := false
+	for portKey := range portBindings {
+		if strings.Contains(portKey, "3000") {
+			foundPort = true
+			break
+		}
+	}
+	if !foundPort {
+		t.Errorf("PortBindings 中未找到 3000/tcp, 实际: %v", portBindings)
+	} else {
+		t.Logf("端口映射 %s 验证通过", portMapping)
+	}
+
+	// 验证 /host/data 目录只读挂载
+	mountsVal := getContainerField(inspectData, "Mounts")
+	mountsList, ok := mountsVal.([]interface{})
+	if !ok {
+		t.Fatalf("Mounts 类型错误: %T", mountsVal)
+	}
+	foundMount := false
+	for _, m := range mountsList {
+		mountMap, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rw, _ := mountMap["RW"].(bool)
+		source, _ := mountMap["Source"].(string)
+		dest, _ := mountMap["Destination"].(string)
+		if !rw && source == hostMountDir && dest == hostMountDir {
+			foundMount = true
+			t.Logf("只读挂载验证: Source=%s, Destination=%s, RW=%v", source, dest, rw)
+			break
+		}
+	}
+	if !foundMount {
+		t.Errorf("未找到预期的只读挂载 %s, 实际 Mounts: %v", hostMountDir, mountsList)
+	} else {
+		t.Log("只读目录挂载验证通过 (recall 模式)")
+	}
+
+	// 验证工作目录
+	workingDirVal := getContainerField(inspectData, "Config", "WorkingDir")
+	wd, ok := workingDirVal.(string)
+	if !ok {
+		t.Fatalf("WorkingDir 类型错误: %T", workingDirVal)
+	}
+	if wd != "/workspace" {
+		t.Errorf("WorkingDir = %q, want %q", wd, "/workspace")
+	} else {
+		t.Log("WorkingDir = /workspace 验证通过 (recall 模式)")
+	}
+
+	// 验证环境变量
+	envVal := getContainerField(inspectData, "Config", "Env")
+	envList, ok := envVal.([]interface{})
+	if !ok {
+		t.Fatalf("Env 类型错误: %T", envVal)
+	}
+	foundEnv := false
+	for _, e := range envList {
+		entry, ok := e.(string)
+		if !ok {
+			continue
+		}
+		if entry == "OPENAI_KEY=sk-xxx" {
+			foundEnv = true
+			break
+		}
+	}
+	if !foundEnv {
+		t.Errorf("Env 中未找到 OPENAI_KEY=sk-xxx, 实际: %v", envList)
+	} else {
+		t.Log("环境变量 OPENAI_KEY=sk-xxx 验证通过 (recall 模式)")
+	}
+
+	// 运行时验证
+	pwdOutput, err := execInContainer(ctx, containerID, "pwd")
+	if err != nil {
+		t.Fatalf("docker exec pwd 失败: %v", err)
+	}
+	if pwdOutput != "/workspace" {
+		t.Errorf("运行时 pwd = %q, want %q", pwdOutput, "/workspace")
+	} else {
+		t.Logf("运行时 pwd 验证通过: %s", pwdOutput)
+	}
+
+	envOutput, err := execInContainer(ctx, containerID, "sh", "-c", "echo $OPENAI_KEY")
+	if err != nil {
+		t.Fatalf("docker exec echo $OPENAI_KEY 失败: %v", err)
+	}
+	if envOutput != "sk-xxx" {
+		t.Errorf("运行时 OPENAI_KEY = %q, want %q", envOutput, "sk-xxx")
+	} else {
+		t.Logf("运行时 OPENAI_KEY 验证通过: %s", envOutput)
+	}
+
+	lsOutput, err := execInContainer(ctx, containerID, "ls", "-d", hostMountDir)
+	if err != nil {
+		t.Errorf("容器内无法访问挂载目录 %s: %v", hostMountDir, err)
+	} else {
+		t.Logf("容器内挂载目录可访问: %s", lsOutput)
+		_, writeErr := execInContainer(ctx, containerID, "touch", hostMountDir+"/test_write_check")
+		if writeErr == nil {
+			t.Error("挂载目录应只读，但写入未返回错误")
+		} else {
+			t.Logf("只读验证通过: 写入挂载目录被拒绝 (%v)", writeErr)
+		}
+	}
+
+	t.Log("E2E 测试 GH-9 recall 模式全部验证通过")
 }
