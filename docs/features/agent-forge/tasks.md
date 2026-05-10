@@ -326,7 +326,7 @@
 
 ### T-31: 覆盖 Scenario "不指定 agent 以 bash 模式启动容器" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`When 开发者执行 run 命令且不指定 -a 参数`、`Then 容器启动并进入 bash shell`、`And bash 环境中自动加载了 claude、opencode、kimi、deepseek-tui 等 wrapper 函数`、`And 开发者可在容器内直接通过 wrapper 函数名调用任意已安装的 AI agent`。
+- [x] 实现 Gherkin step definitions：`When 开发者执行 run 命令且不指定 -a 参数`、`Then 容器启动并进入 bash shell`、`And bash 环境中自动加载了 claude、opencode、kimi、deepseek-tui 等 wrapper 函数`、`And 开发者可在容器内直接通过 wrapper 函数名调用任意已安装的 AI agent`。
 
 **可追溯性:** REQ-14 · Scenario: "不指定 agent 以 bash 模式启动容器"
 **依赖:** T-23

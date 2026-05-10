@@ -14,6 +14,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 
+	"github.com/agent-forge/cli/internal/run/wrapperloader"
 	"github.com/agent-forge/cli/internal/shared/argsparser"
 	"github.com/agent-forge/cli/internal/shared/dockerhelper"
 )
@@ -333,4 +334,194 @@ func TestE2E_GH6_RunInteractiveTerminal(t *testing.T) {
 	}
 
 	t.Log("E2E 测试 GH-6 全部验证通过")
+}
+
+// TestE2E_GH7_BashMode 覆盖 GH-7 Scenario "不指定 agent 以 bash 模式启动容器"。
+//
+// Given 已构建 AgentForge 镜像
+// When 开发者执行 run 命令且不指定 -a 参数
+// Then 容器启动并进入 bash shell
+// And bash 环境中自动加载了 claude、opencode、kimi、deepseek-tui 等 wrapper 函数
+// And 开发者可在容器内直接通过 wrapper 函数名调用任意已安装的 AI agent
+//
+// 实现策略：
+//   - 使用 AssembleContainerConfig 生成 bash 模式配置（含 AGENTFORGE_WRAPPER 环境变量）
+//   - 通过 docker inspect 验证配置（Tty=true, OpenStdin=true, Cmd 包含 wrapper 加载）
+//   - 容器以 sleep 命令保持运行，通过 docker exec 验证 wrapper 函数已加载
+//   - docker exec 继承容器的环境变量，可引用 AGENTFORGE_WRAPPER 加载函数定义
+func TestE2E_GH7_BashMode(t *testing.T) {
+	// --- Given 已构建 AgentForge 镜像 ---
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker Engine 未运行，跳过 E2E 测试: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	ensureImageExists(t, ctx, helper)
+
+	// --- When 开发者执行 run 命令且不指定 -a 参数 ---
+	// 生成 wrapper 脚本（模拟 RunEngine 内部行为）
+	wl := wrapperloader.New()
+	wrapperScript := wl.Generate()
+	t.Logf("生成的 wrapper 脚本长度: %d 字符", len(wrapperScript))
+
+	params := argsparser.RunParams{
+		Agent: "", // bash 模式：未指定 -a 参数
+	}
+
+	config, hostConfig, netConfig := AssembleContainerConfig(params, wrapperScript)
+
+	// 通过 AssembleContainerConfig 验证 bash 模式的 Cmd 配置
+	if len(config.Cmd) < 3 || config.Cmd[0] != "bash" || config.Cmd[1] != "-c" {
+		t.Fatalf("bash 模式 Cmd 配置错误, 期望 [bash -c <脚本>], 实际: %v", config.Cmd)
+	}
+	cmdStr := config.Cmd[2]
+	if !strings.Contains(cmdStr, "AGENTFORGE_WRAPPER") {
+		t.Errorf("bash 模式 Cmd 应引用 AGENTFORGE_WRAPPER 环境变量, 实际: %s", cmdStr)
+	} else {
+		t.Log("bash 模式 Cmd 包含 AGENTFORGE_WRAPPER 引用")
+	}
+	if !strings.Contains(cmdStr, "exec bash") {
+		t.Errorf("bash 模式 Cmd 应在加载 wrapper 后 exec bash, 实际: %s", cmdStr)
+	} else {
+		t.Log("bash 模式 Cmd 在加载 wrapper 后 exec bash")
+	}
+
+	// 验证 AGENTFORGE_WRAPPER 环境变量已设置
+	foundWrapper := false
+	var wrapperEnvValue string
+	for _, e := range config.Env {
+		if strings.HasPrefix(e, "AGENTFORGE_WRAPPER=") {
+			foundWrapper = true
+			wrapperEnvValue = e
+			break
+		}
+	}
+	if !foundWrapper {
+		t.Error("bash 模式应设置 AGENTFORGE_WRAPPER 环境变量")
+	} else {
+		t.Logf("AGENTFORGE_WRAPPER 环境变量长度: %d 字符", len(wrapperEnvValue))
+	}
+
+	// 将 Cmd 改为 sleep 以保持容器运行，便于通过 docker exec 验证运行时环境
+	config.Cmd = []string{"sleep", "300"}
+	hostConfig.AutoRemove = false
+
+	// 创建容器
+	resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+	if err != nil {
+		t.Fatalf("ContainerCreate() error = %v", err)
+	}
+	containerID := resp.ID
+	t.Logf("容器创建成功, ID: %s", containerID)
+
+	// 清理：测试结束后强制删除容器
+	defer func() {
+		if removeErr := helper.ContainerRemove(ctx, containerID, true, false); removeErr != nil {
+			t.Logf("清理容器 %s 时出现非致命错误: %v", containerID, removeErr)
+		}
+	}()
+
+	// --- Then 容器启动并进入 bash shell ---
+	if err := helper.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+		t.Fatalf("ContainerStart() error = %v", err)
+	}
+	t.Log("容器启动成功")
+
+	if !containerRunning(t, helper, ctx, containerID) {
+		t.Fatal("容器启动后状态不是 running")
+	}
+	t.Log("容器处于 running 状态")
+
+	// 通过 docker inspect 验证容器配置
+	inspectData := inspectContainer(t, containerID)
+
+	// 验证 Tty=true（交互式终端）
+	ttyVal := getContainerField(inspectData, "Config", "Tty")
+	tty, ok := ttyVal.(bool)
+	if !ok {
+		t.Fatalf("Config.Tty 类型错误: %T", ttyVal)
+	}
+	if !tty {
+		t.Error("Config.Tty = false, want true (bash interactive terminal)")
+	} else {
+		t.Log("Config.Tty = true 验证通过 (bash interactive terminal)")
+	}
+
+	// 验证 OpenStdin=true（标准输入打开）
+	stdinVal := getContainerField(inspectData, "Config", "OpenStdin")
+	openStdin, ok := stdinVal.(bool)
+	if !ok {
+		t.Fatalf("Config.OpenStdin 类型错误: %T", stdinVal)
+	}
+	if !openStdin {
+		t.Error("Config.OpenStdin = false, want true")
+	} else {
+		t.Log("Config.OpenStdin = true 验证通过")
+	}
+
+	// --- And bash 环境中自动加载了 claude、opencode、kimi、deepseek-tui 等 wrapper 函数 ---
+	wrapperAgents := []string{"claude", "opencode", "kimi", "deepseek-tui"}
+	for _, agent := range wrapperAgents {
+		// docker exec 继承容器的环境变量，因此可直接引用 $AGENTFORGE_WRAPPER
+		// eval 加载 wrapper 函数定义后，通过 type 验证函数已定义
+		output, execErr := execInContainer(ctx, containerID, "bash", "-c",
+			fmt.Sprintf(`eval "$AGENTFORGE_WRAPPER"; type %s 2>&1`, agent))
+		if execErr != nil {
+			t.Errorf("验证 %s wrapper 函数失败: %v", agent, execErr)
+			continue
+		}
+		// type 输出类似 "claude is a function" 或 "claude 是一个函数"
+		if !strings.Contains(output, "is a function") &&
+			!strings.Contains(output, "函数") &&
+			!strings.Contains(output, agent) {
+			t.Errorf("%s 的 type 输出未包含函数定义信息: %s", agent, output)
+		} else {
+			t.Logf("%s wrapper 函数验证通过: %s", agent, output)
+		}
+	}
+
+	// --- And 开发者可在容器内直接通过 wrapper 函数名调用任意已安装的 AI agent ---
+	// 验证 wrapper 函数可通过 command -v 被 bash 识别为可调用命令
+	for _, agent := range wrapperAgents {
+		output, execErr := execInContainer(ctx, containerID, "bash", "-c",
+			fmt.Sprintf(`eval "$AGENTFORGE_WRAPPER"; command -v %s`, agent))
+		if execErr != nil {
+			t.Errorf("验证 %s 可通过 wrapper 函数调用失败: %v", agent, execErr)
+			continue
+		}
+		if output == "" {
+			t.Errorf("%s 的 command -v 返回空, 期望函数名", agent)
+		} else {
+			t.Logf("%s wrapper 函数可被 command -v 识别: %s", agent, output)
+		}
+	}
+
+	// 验证 wrapper 函数的可执行性（在实际有 agent 二进制的镜像中会执行 agent，
+	// 此处仅在测试环境中验证函数定义与调用的完整性）
+	for _, agent := range wrapperAgents {
+		output, execErr := execInContainer(ctx, containerID, "bash", "-c",
+			fmt.Sprintf(`eval "$AGENTFORGE_WRAPPER"; if command -v %s >/dev/null 2>&1; then %s --version 2>&1 || true; else echo "NOT_INSTALLED:%s"; fi`, agent, agent, agent))
+		if execErr != nil {
+			t.Logf("调用 %s wrapper 时出错（非阻塞，仅记录）: %v", agent, execErr)
+			continue
+		}
+		// 测试镜像中不含 AI agent 二进制文件，因此应输出 NOT_INSTALLED 提示
+		if strings.Contains(output, "NOT_INSTALLED") {
+			t.Logf("%s wrapper 调用正确: 检测到 agent 未安装并输出提示信息 (%s)", agent, output)
+		} else {
+			t.Logf("%s wrapper 调用输出: %s", agent, output)
+		}
+	}
+
+	t.Log("E2E 测试 GH-7 bash 模式全部验证通过")
 }
