@@ -491,7 +491,7 @@
 
 ### T-46: 实现 Apply Syncer 端点配置同步
 
-- [ ] 实现 Apply Syncer：读取端点配置，查询 Provider-Agent Matrix 确定该 provider 可服务的 agent 列表；对每个适用 agent，按 agent 类型写入不同格式的配置文件（claude → `.claude/.env` key=value 格式、opencode → `.opencode/.env`、kimi → `.kimi/config.toml` TOML 格式、deepseek-tui → `.deepseek/.env`）；所有写入文件权限设为 0600（NFR-9）；支持 `--agent` 参数用逗号分隔筛选目标 agent；不指定端点名称时遍历所有端点写入全部适用 agent。
+- [x] 实现 Apply Syncer：读取端点配置，查询 Provider-Agent Matrix 确定该 provider 可服务的 agent 列表；对每个适用 agent，按 agent 类型写入不同格式的配置文件（claude → `.claude/.env` key=value 格式、opencode → `.opencode/.env`、kimi → `.kimi/config.toml` TOML 格式、deepseek-tui → `.deepseek/.env`）；所有写入文件权限设为 0600（NFR-9）；支持 `--agent` 参数用逗号分隔筛选目标 agent；不指定端点名称时遍历所有端点写入全部适用 agent。
 
 **可追溯性:** REQ-28 · REQ-29 · NFR-9
 **依赖:** T-39 · T-40

@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/agent-forge/cli/internal/endpoint/applysyncer"
 	"github.com/agent-forge/cli/internal/endpoint/endpointmanager"
 	"github.com/agent-forge/cli/internal/endpoint/provideragentmatrix"
 	"github.com/agent-forge/cli/internal/shared/configresolver"
@@ -570,6 +571,108 @@ var endpointTestCmd = &cobra.Command{
 	},
 }
 
+// endpointApplyCmd represents the endpoint apply subcommand
+//
+// 将端点配置同步到各 AI agent 的配置文件中（REQ-28/REQ-29）。
+// 根据 Provider-Agent Matrix 确定该 provider 可服务的 agent 列表，
+// 按 agent 类型写入不同格式的配置文件。
+//
+// 不指定端点名称时遍历所有端点写入全部适用 agent。
+// 支持 --agent 参数用逗号分隔筛选目标 agent。
+// 所有写入文件权限设为 0600（NFR-9）。
+var endpointApplyCmd = &cobra.Command{
+	Use:   "apply [name]",
+	Short: "将端点配置同步到 AI agent 配置文件",
+	Long: `将 LLM 端点配置同步到各 AI agent 的配置文件中。
+
+根据端点配置中的 provider 查询 Provider-Agent Matrix，确定该 provider
+可服务的 agent 列表（如 openai 可服务 claude/opencode），然后按各 agent
+期望的格式写入配置文件：
+
+  - claude:     .claude/.env（key=value 格式）
+  - opencode:   .opencode/.env（key=value 格式）
+  - kimi:       .kimi/config.toml（TOML 格式）
+  - deepseek-tui: .deepseek/.env（key=value 格式）
+
+不指定端点名称时，遍历所有端点写入全部适用 agent。
+支持 --agent 参数用逗号分隔筛选目标 agent。
+所有写入文件权限设为 0600（NFR-9）。
+
+示例：
+  # 同步指定端点到所有适用 agent
+  agent-forge endpoint apply my-ep
+
+  # 仅同步到指定 agent
+  agent-forge endpoint apply my-ep --agent claude,kimi
+
+  # 同步所有端点到所有适用 agent
+  agent-forge endpoint apply`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// --- 解析配置目录 ---
+		configFlag, _ := cmd.Flags().GetString("config")
+		configDir, err := configresolver.Resolve(configFlag)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 解析配置目录失败\n"+
+					"上下文: 正在为 endpoint apply 命令解析配置目录路径\n"+
+					"建议: 请确认 -c 参数指定的路径有效，或使用默认路径\n"+
+					"错误详情: %s", err.Error()),
+			)
+		}
+
+		// --- 解析 --agent 参数 ---
+		agentFlag, _ := cmd.Flags().GetString("agent")
+		var agents []string
+		if agentFlag != "" {
+			for _, a := range strings.Split(agentFlag, ",") {
+				trimmed := strings.TrimSpace(a)
+				if trimmed != "" {
+					agents = append(agents, trimmed)
+				}
+			}
+		}
+
+		endpointsDir := filepath.Join(configDir, "endpoints")
+
+		if len(args) == 0 {
+			// --- 不指定端点名称：同步所有端点 ---
+			result, err := applysyncer.SyncAllEndpoints(endpointsDir, configDir, agents)
+			if err != nil {
+				return newExitCodeError(1,
+					fmt.Sprintf("原因: 同步端点配置失败\n"+
+						"上下文: 正在同步所有端点到 agent 配置文件\n"+
+						"建议: 请确认端点配置目录 %s 存在且包含有效的端点\n"+
+						"错误详情: %s", endpointsDir, err.Error()),
+				)
+			}
+
+			fmt.Println("已同步所有端点：")
+			for epName, syncedAgents := range result {
+				fmt.Printf("  %s → %s\n", epName, strings.Join(syncedAgents, ", "))
+			}
+		} else {
+			// --- 指定端点名称：同步单个端点 ---
+			name := args[0]
+			endpointDir := filepath.Join(endpointsDir, name)
+
+			synced, err := applysyncer.ReadAndSyncEndpoint(endpointDir, configDir, agents)
+			if err != nil {
+				return newExitCodeError(1,
+					fmt.Sprintf("原因: 同步端点 %s 配置失败\n"+
+						"上下文: 正在同步端点 %s 到 agent 配置文件\n"+
+						"建议: 请确认端点 %s 已存在，或使用 endpoint list 查看所有可用端点\n"+
+						"错误详情: %s", name, name, name, err.Error()),
+				)
+			}
+
+			fmt.Printf("端点 %s 已同步到: %s\n", name, strings.Join(synced, ", "))
+		}
+
+		return nil
+	},
+}
+
 func init() {
 	endpointCmd.AddCommand(endpointProvidersCmd)
 	endpointCmd.AddCommand(endpointListCmd)
@@ -578,6 +681,7 @@ func init() {
 	endpointCmd.AddCommand(endpointSetCmd)
 	endpointCmd.AddCommand(endpointRmCmd)
 	endpointCmd.AddCommand(endpointTestCmd)
+	endpointCmd.AddCommand(endpointApplyCmd)
 
 	endpointAddCmd.Flags().String("provider", "", "LLM 服务商（deepseek / openai / anthropic）")
 	endpointAddCmd.Flags().String("url", "", "API 基础 URL")
@@ -596,6 +700,8 @@ func init() {
 	endpointSetCmd.Flags().String("model-sonnet", "", "Sonnet 模型")
 	endpointSetCmd.Flags().String("model-haiku", "", "Haiku 模型")
 	endpointSetCmd.Flags().String("model-subagent", "", "Subagent 模型")
+
+	endpointApplyCmd.Flags().String("agent", "", "逗号分隔的 agent 列表（如 claude,kimi）")
 
 	endpointCmd.PersistentFlags().StringP("config", "c", "", "配置目录路径")
 }
