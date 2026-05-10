@@ -632,6 +632,31 @@ sequenceDiagram
 **替代流程：**
 - *超过最大重试次数后仍失败*：BuildEngine 输出 "网络错误超过最大重试次数 N 次，建议检查网络或使用 --gh-proxy"，退出码 1
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant BE as BuildEngine
+    participant DH as Docker Helper
+    participant DK as Docker Engine
+
+    Dev->>BE: build -d all --max-retry 3
+    BE->>DH: docker build (首次)
+    DH->>DK: 拉取依赖...
+    DK-->>DH: curl 退出码 7 (连接超时)
+    DH-->>BE: 网络错误
+    BE->>BE: 等待 1s (指数退避)
+    BE->>DH: docker build (第2次)
+    DH->>DK: 拉取依赖...
+    DK-->>DH: curl 退出码 28 (超时)
+    DH-->>BE: 网络错误
+    BE->>BE: 等待 2s
+    BE->>DH: docker build (第3次)
+    DH->>DK: 拉取依赖...
+    DK-->>DH: 下载成功
+    DH-->>BE: 构建完成
+    BE-->>Dev: 退出码 0
+```
+
 ---
 
 ### 流程：重建镜像成功替换旧标签（Scenario: 重建镜像成功替换旧标签）
@@ -675,6 +700,21 @@ sequenceDiagram
 4. **BuildEngine** 清理临时镜像标签：`docker rmi agent-forge:tmp-<timestamp>`（若已创建）（NFR-11）
 5. 保留原镜像 `agent-forge:latest` 不变
 6. 退出码 非零
+
+```mermaid
+sequenceDiagram
+    participant BE as BuildEngine
+    participant DH as Docker Helper
+    participant DK as Docker Engine
+
+    BE->>DH: docker build -t agent-forge:tmp-xxx --no-cache
+    DH->>DK: 构建中...
+    DK-->>DH: RUN invalid-package-that-fails — 失败
+    DH-->>BE: 构建失败 (退出码非零)
+    BE->>DH: docker rmi agent-forge:tmp-xxx (清理临时镜像)
+    BE-->>BE: 保留 agent-forge:latest 不变
+    Note over BE: 退出码 非零
+```
 
 ---
 
@@ -730,6 +770,24 @@ sequenceDiagram
 4. 容器启动进入 bash shell，wrapper 函数已加载
 5. 开发者在容器内可直接调用 `claude`、`opencode`、`kimi`、`deepseek-tui` 等 wrapper 函数
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant RE as RunEngine
+    participant WL as Wrapper Loader
+    participant DH as Docker Helper
+    participant Container as 容器
+
+    Dev->>RE: run (无 -a)
+    RE->>WL: 获取 wrapper 函数脚本
+    WL-->>RE: wrapper 函数内容
+    RE->>DH: docker run -it agent-forge bash -c "source wrapper; bash"
+    DH->>Container: 启动容器
+    Container-->>Dev: bash shell + wrapper 函数已加载
+    Dev->>Container: 输入 claude / opencode / kimi
+    Container-->>Dev: agent 交互终端可用
+```
+
 ---
 
 ### 流程：以 Docker-in-Docker 特权模式启动容器（Scenario: 以 Docker-in-Docker 特权模式启动容器）
@@ -743,6 +801,25 @@ sequenceDiagram
 4. 容器启动后自动执行 `dockerd &`，等待 dockerd 就绪
 5. 开发者可以在容器内执行 `docker ps` 等 docker 命令
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant Args as Args Parser
+    participant RE as RunEngine
+    participant DH as Docker Helper
+    participant Container as 容器 (特权模式)
+
+    Dev->>Args: run --docker
+    Args->>RE: 设置特权模式 + root 用户
+    RE->>DH: docker run -it --privileged --user root agent-forge
+    DH->>Container: 启动特权容器
+    Container->>Container: dockerd & (启动 Docker daemon)
+    Container->>Container: 等待 dockerd 就绪 (轮询 docker info)
+    Container-->>Dev: dockerd 已就绪，bash 可用
+    Dev->>Container: docker ps
+    Container-->>Dev: (容器列表输出)
+```
+
 ---
 
 ### 流程：通过 -r 参数恢复上次运行参数启动容器（Scenario: 通过 -r 参数恢复上次运行参数启动容器）
@@ -752,6 +829,28 @@ sequenceDiagram
 3. **Args Persistence** 读取文件，解析为结构化参数集
 4. **RunEngine** 使用恢复的参数集执行完整的 run 流程（等同于开发者手动输入了这些参数）
 5. 容器以与上次运行完全相同的配置启动
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant Args as Args Parser
+    participant RE as RunEngine
+    participant AP as Args Persistence
+    participant DH as Docker Helper
+
+    Dev->>Args: run -r
+    Args->>RE: 标记为 recall 模式
+    RE->>AP: 读取 <config-dir>/.last_args
+    alt .last_args 存在
+        AP-->>RE: 恢复全部参数 (agent, ports, mounts, envs, workdir)
+        RE->>DH: docker run (使用恢复的参数)
+        DH-->>Dev: 容器启动成功
+    else .last_args 不存在
+        AP-->>RE: 文件不存在
+        RE-->>Dev: "未找到 .last_args 文件，无法恢复上次运行参数"
+        Note over Dev: 退出码 2
+    end
+```
 
 **替代流程（Scenario: 不存在历史参数时使用 -r 恢复失败）：**
 - *步骤 2 文件不存在*：Args Persistence 返回文件不存在错误 → RunEngine 输出 "未找到 .last_args 文件，无法恢复上次运行参数" → 容器不启动，退出码 2
@@ -766,6 +865,24 @@ sequenceDiagram
 4. 容器后台启动，执行 `npm test`
 5. 命令执行完成，容器自动退出
 6. **Docker Helper** 获取容器退出码，作为 CLI 退出码传递
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant Args as Args Parser
+    participant RE as RunEngine
+    participant DH as Docker Helper
+    participant Container as 容器
+
+    Dev->>Args: run --run "npm test"
+    Args->>RE: 设置后台执行模式
+    RE->>DH: docker run --rm agent-forge bash -c "npm test" (无 -it)
+    DH->>Container: 后台启动容器
+    Container->>Container: 执行 npm test
+    Container-->>DH: 命令执行完成，退出码 N
+    DH->>DH: 传递容器退出码
+    DH-->>Dev: 退出码 N, 容器已自动销毁
+```
 
 ---
 
@@ -806,6 +923,26 @@ sequenceDiagram
 4. 开发者依次输入 deepseek、https://api.deepseek.com
 5. **EndpointManager** 创建端点并写入配置文件
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant EM as EndpointManager
+    participant CR as Config Resolver
+
+    Dev->>CLI: endpoint add my-ds (缺参数)
+    CLI->>EM: 新增端点 my-ds (交互模式)
+    EM->>Dev: "请输入 provider (deepseek/openai/anthropic):"
+    Dev->>EM: deepseek
+    EM->>Dev: "请输入 API URL:"
+    Dev->>EM: https://api.deepseek.com
+    EM->>Dev: "请输入默认模型 (可选，直接回车跳过):"
+    Dev->>EM: (回车跳过)
+    EM->>CR: 创建目录 <config-dir>/endpoints/my-ds/
+    EM->>EM: 写入 endpoint.env (权限 0600)
+    EM-->>Dev: 端点 my-ds 创建成功
+```
+
 ---
 
 ### 流程：修改已有端点的配置（Scenario: 修改已有端点的配置）
@@ -815,12 +952,40 @@ sequenceDiagram
 3. **EndpointManager** 更新 KEY 和 MODEL 字段
 4. 写回文件，权限 `0600`
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant EM as EndpointManager
+
+    Dev->>CLI: endpoint set my-ep --key sk-new-key --model gpt-5
+    CLI->>EM: 修改端点 my-ep
+    EM->>EM: 读取 endpoint.env
+    EM->>EM: 更新 api_key=sk-new-key, model=gpt-5
+    EM->>EM: 写回文件 (权限 0600)
+    EM-->>Dev: 端点 my-ep 已更新
+```
+
 ---
 
 ### 流程：删除 LLM 端点（Scenario: 删除 LLM 端点）
 
 1. **CLI Router** 接收 `endpoint rm my-ep`
 2. **EndpointManager** 递归删除 `<config-dir>/endpoints/my-ep/` 目录
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant EM as EndpointManager
+    participant FS as 文件系统
+
+    Dev->>CLI: endpoint rm my-ep
+    CLI->>EM: 删除端点 my-ep
+    EM->>FS: rm -rf <config-dir>/endpoints/my-ep/
+    FS-->>EM: 目录已删除
+    EM-->>Dev: 端点 my-ep 已删除
+```
 
 ---
 
@@ -829,6 +994,32 @@ sequenceDiagram
 1. **endpoint providers**：EndpointManager 读取 Provider-Agent Matrix 硬编码映射表，输出服务商与 agent 对照表
 2. **endpoint list**：EndpointManager 遍历 `endpoints/` 目录，读取每个端点的 endpoint.env 的 PROVIDER 和 MODEL 字段，以 NAME/PROVIDER/MODEL 表格输出
 3. **endpoint show my-ep**：读取 `my-ep/endpoint.env` 全部字段，KEY 字段做掩码处理（NFR-6）：前 8 字符 + `***` + 后 4 字符
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant EM as EndpointManager
+    participant PAM as Provider-Agent Matrix
+
+    Dev->>CLI: endpoint providers
+    CLI->>EM: 列出服务商
+    EM->>PAM: 读取 provider-agent 映射表
+    PAM-->>EM: deepseek→claude,opencode,kimi,dstui / openai→claude,opencode,dstui / anthropic→claude
+    EM-->>Dev: (providers 对照表输出)
+
+    Dev->>CLI: endpoint list
+    CLI->>EM: 列出端点
+    EM->>EM: 遍历 endpoints/ 目录
+    EM->>EM: 读取每个 endpoint.env 的 provider 和 model
+    EM-->>Dev: (NAME | PROVIDER | MODEL 表格)
+
+    Dev->>CLI: endpoint show my-ep
+    CLI->>EM: 查看端点详情
+    EM->>EM: 读取 my-ep/endpoint.env 全部字段
+    EM->>EM: KEY 掩码: 前8字符 + *** + 后4字符
+    EM-->>Dev: (端点详情，key 掩码显示)
+```
 
 ---
 
@@ -843,6 +1034,28 @@ sequenceDiagram
 
 **替代流程（Scenario: 测试端点连通性失败）：**
 - *步骤 3 请求超时或失败*：curl 在 30 秒内超时（NFR-4）→ 输出 "连接失败: 连接超时，建议检查 URL 和网络连通性" → 退出码 1
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant EM as EndpointManager
+    participant API as LLM Provider API
+
+    Dev->>CLI: endpoint test my-ep
+    CLI->>EM: 测试端点 my-ep
+    EM->>EM: 读取 my-ep/endpoint.env (URL + KEY)
+    EM->>API: POST {URL}/chat/completions
+    alt 连通成功
+        API-->>EM: HTTP 200 + 回复内容
+        EM-->>Dev: ✅ 成功 (320ms), 回复: "Hello! How can I..."
+        Note over Dev: 退出码 0
+    else 连通失败
+        API-->>EM: 连接超时 / DNS 失败 / 401
+        EM-->>Dev: ❌ 失败: 连接超时，建议检查 URL 和网络连通性
+        Note over Dev: 退出码 非零
+    end
+```
 
 ---
 
@@ -861,6 +1074,25 @@ sequenceDiagram
 **替代流程（Scenario: 同步端点配置到 agent — 带 --agent 过滤）：**
 - *步骤 3 使用 `--agent claude,kimi`*：Apply Syncer 仅写入 claude 和 kimi 的配置文件，opencode 和 deepseek-tui 不受影响
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant AS as Apply Syncer
+    participant PAM as Provider-Agent Matrix
+    participant FS as 文件系统
+
+    Dev->>CLI: endpoint apply my-ep --agent claude,kimi
+    CLI->>AS: 同步端点 my-ep 到 claude,kimi
+    AS->>AS: 读取 my-ep/endpoint.env
+    AS->>PAM: 查询 provider 对应的全部 agent
+    PAM-->>AS: [claude, opencode, kimi, deepseek-tui]
+    AS->>AS: 过滤: --agent claude,kimi → 仅 claude, kimi
+    AS->>FS: 写入 .claude/.env (权限 0600)
+    AS->>FS: 写入 .kimi/config.toml (权限 0600)
+    AS-->>Dev: 应用完成 (2/2 成功)
+```
+
 ---
 
 ### 流程：查看 agent 端点映射关系（Scenario: 查看 agent 端点映射关系）
@@ -869,6 +1101,23 @@ sequenceDiagram
 2. **EndpointManager** 遍历 `endpoints/` 目录，读取每个端点的 PROVIDER
 3. 对每个 provider，查询 Provider-Agent Matrix 获取可服务的 agent 列表
 4. 输出表格：| Agent | 关联端点 |
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant EM as EndpointManager
+    participant PAM as Provider-Agent Matrix
+    participant FS as 文件系统
+
+    Dev->>CLI: endpoint status
+    CLI->>EM: 查看映射关系
+    EM->>FS: 遍历 endpoints/ 目录
+    FS-->>EM: [my-ds (deepseek), my-oai (openai)]
+    EM->>PAM: 查询各 provider 对应的 agent 列表
+    PAM-->>EM: deepseek→[claude,opencode,kimi,dstui] / openai→[claude,opencode,dstui]
+    EM-->>Dev: (Agent | 端点 表格输出)
+```
 
 ---
 
@@ -915,12 +1164,56 @@ sequenceDiagram
 4. 临时容器启动，执行脚本，输出分类安装状态和版本
 5. 检测完成，临时容器自动销毁
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant DI as Deps Inspector
+    participant DH as Docker Helper
+    participant Container as 临时容器
+
+    Dev->>CLI: deps
+    CLI->>DI: 执行依赖检测
+    DI->>DI: 生成检测脚本 (agent/skill/tool/runtime 分类)
+    DI->>DH: docker run --rm agent-forge bash -c <脚本>
+    DH->>Container: 启动临时容器 (--rm)
+    Container->>Container: 执行检测脚本
+    Container-->>DH: agent: claude ✓ 1.0.0 / skill: openspec ✓ 2.1.0 / tool: docker ✓ ...
+    DH-->>DI: 检测结果
+    DI-->>Dev: (分类表格: agent | skill | tool | runtime)
+    Note over Container: 容器自动销毁 (--rm)
+```
+
 ---
 
 ### 流程：导出和导入镜像实现离线分发（Scenario: 导出和导入镜像实现离线分发）
 
-1. **export**：CLI Router → DistributionEngine → Docker Helper → `docker save agent-forge:latest -o agent-forge.tar`
-2. **import**：CLI Router → DistributionEngine → Docker Helper → `docker load -i agent-forge.tar`
+1. **export**：CLI Router 路由到 Docker Helper → 执行 `docker save -o <filename> agent-forge:latest`
+2. **import**：CLI Router 路由到 Docker Helper → 执行 `docker load -i <filename>`
+3. import 完成后镜像在 `docker images` 中可见，可通过 `run` 正常启动
+
+```mermaid
+sequenceDiagram
+    participant DevA as 开发者 (有网络)
+    participant AF as AgentForge (host A)
+    participant DK as Docker Engine
+    participant Transfer as 传输介质 (U盘/内网)
+    participant DevB as 开发者 (离线)
+    participant AFB as AgentForge (host B)
+
+    DevA->>AF: export agent-forge.tar
+    AF->>DK: docker save -o agent-forge.tar agent-forge:latest
+    DK-->>AF: 导出完成
+    AF-->>DevA: agent-forge.tar 已生成
+    DevA->>Transfer: 复制 tar 文件
+    Transfer->>DevB: tar 文件到达离线机器
+    DevB->>AFB: import agent-forge.tar
+    AFB->>DK: docker load -i agent-forge.tar
+    DK-->>AFB: 镜像加载完成
+    AFB-->>DevB: 导入完成
+    DevB->>AFB: run -a claude
+    AFB-->>DevB: (容器正常启动，agent 可用)
+```
 
 ---
 
@@ -930,6 +1223,35 @@ sequenceDiagram
 2. 更新失败时自动回滚到备份版本（NFR-13）
 3. **version**：Version Info 读取嵌入的版本号和 git hash 并格式化输出
 4. **help**：Help System 输出指定命令的统一格式帮助信息
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant UE as Self-Update Engine
+    participant Git as Git Remote
+    participant FS as 文件系统
+
+    Dev->>CLI: update
+    CLI->>UE: 执行自更新
+    UE->>FS: 备份当前二进制
+    UE->>Git: curl 下载最新版本
+    Git-->>UE: 新版本二进制
+    UE->>UE: 嵌入 git hash、验证完整性
+    UE->>FS: 替换旧二进制为新版本
+    UE-->>Dev: 更新完成 (v1.2.0, hash: abc1234)
+    alt 下载失败
+        Git-->>UE: 网络错误
+        UE->>FS: 回滚到备份版本
+        UE-->>Dev: 更新失败，已回滚
+    end
+
+    Dev->>CLI: version
+    CLI-->>Dev: dockercoding 1.2.0 (abc1234)
+
+    Dev->>CLI: build --help
+    CLI-->>Dev: (build 命令完整帮助信息)
+```
 
 ---
 
