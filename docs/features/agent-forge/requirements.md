@@ -2,164 +2,164 @@
 
 ## 1. 镜像构建 (Image Build)
 
-**REQ-1**: When the developer executes the build command with the `-d` parameter specifying dependencies, the system shall build a Docker image containing the listed AI agents, runtimes, and tools.
+**REQ-1**: 当开发者执行 build 命令并通过 `-d` 参数指定依赖列表时，系统必须构建包含所列 AI agent、runtime 和 tool 的 Docker 镜像。
 
 > 来源：PRD 目标 1 / Story 1 验收标准 / BDD 场景 "构建包含全部依赖的镜像"、"构建包含指定依赖的自定义镜像"
 
-**REQ-2**: When the developer specifies the `-b` parameter for base image and the `-c` parameter for configuration directory, the system shall use the specified base image and configuration parent directory during the build process.
+**REQ-2**: 当开发者通过 `-b` 参数指定基础镜像、通过 `-c` 参数指定配置目录时，系统必须在构建过程中使用指定的基础镜像和配置父目录。
 
 > 来源：PRD 目标 2 / Story 1 验收标准 / BDD 场景 "构建包含指定依赖的自定义镜像"
 
-**REQ-3**: While building the Docker image, the system shall automatically use domestic mirror sources (npm to npmmirror, pip to aliyun, yum to aliyun centos vault) to accelerate dependency downloads.
+**REQ-3**: 当系统正在构建 Docker 镜像时，系统必须自动使用国内镜像源（npm 切换为 npmmirror，pip 切换为阿里云，yum 切换为阿里云 centos vault）以加速依赖下载。
 
 > 来源：PRD 目标 3 / Story 1 验收标准
 
-**REQ-4**: If a network error occurs during the build process, the system shall automatically retry with exponential backoff strategy up to the number of times specified by `--max-retry` (default 3).
+**REQ-4**: 如果在构建过程中发生网络错误，系统必须自动使用指数退避策略重试，重试次数不超过 `--max-retry` 指定的值（默认为 3 次）。
 
 > 来源：PRD 目标 3 / Story 1 验收标准 / BDD 场景 "构建过程中网络错误时自动重试"
 
-**REQ-5**: When the developer specifies `--gh-proxy` with a URL, the system shall use the specified GitHub proxy for resource downloads during the build process.
+**REQ-5**: 当开发者通过 `--gh-proxy` 参数指定 GitHub 代理 URL 时，系统必须在构建过程中使用该代理下载资源。
 
 > 来源：PRD 目标 2 / Story 1 验收标准 / BDD 场景 "构建过程中网络错误时自动重试"
 
-**REQ-6**: When the developer passes the `--no-cache` flag to the build command, the system shall force skip the Docker cache during image building.
+**REQ-6**: 当开发者向 build 命令传递 `--no-cache` 参数时，系统必须在镜像构建过程中强制跳过 Docker 缓存。
 
 > 来源：PRD 目标 2 / BDD 场景 "重建镜像成功替换旧标签"
 
-**REQ-7**: When the developer executes the build command with the `-R/--rebuild` flag, the system shall build with a temporary tag, and upon success replace the original image tag with the new image and delete the old image, exiting with code 0.
+**REQ-7**: 当开发者执行 build 命令并附带 `-R/--rebuild` 参数时，系统必须使用临时标签构建镜像，构建成功后使用新镜像替换原标签并删除旧镜像，以退出码 0 退出。
 
 > 来源：PRD 替代流程 "重建模式 — rebuild" / Story 2 验收标准 / BDD 场景 "重建镜像成功替换旧标签"
 
-**REQ-8**: If the rebuild process fails, the system shall clean up the temporary tag, preserve the original image unchanged, and exit with a non-zero code.
+**REQ-8**: 如果重建过程失败，系统必须清理临时标签，保留原镜像不变，并以非零退出码退出。
 
 > 来源：PRD 替代流程 "重建模式 — rebuild" / Story 2 验收标准 / BDD 场景 "重建失败时保留旧镜像"
 
 ## 2. 容器运行 — Agent 交互终端 (Container Run: Agent Interactive Terminal)
 
-**REQ-9**: When the developer executes the run command with the `-a` parameter specifying an AI agent (claude, opencode, kimi, or deepseek-tui), the system shall start a container and launch the corresponding interactive terminal.
+**REQ-9**: 当开发者执行 run 命令并通过 `-a` 参数指定 AI agent（claude、opencode、kimi 或 deepseek-tui）时，系统必须启动容器并运行对应的交互式终端。
 
 > 来源：PRD 目标 4 / Story 3 验收标准 / BDD 场景 "启动指定 agent 带完整配置的交互式终端"
 
-**REQ-10**: When the developer specifies the `-p` parameter with port mappings, the system shall publish the specified host ports to the corresponding container ports.
+**REQ-10**: 当开发者通过 `-p` 参数指定端口映射时，系统必须将指定的主机端口发布到对应的容器端口。
 
 > 来源：PRD 目标 5 / Story 3 验收标准 / BDD 场景 "启动指定 agent 带完整配置的交互式终端"
 
-**REQ-11**: When the developer specifies the `-m` parameter with directory paths, the system shall mount the specified host directories as read-only at the same paths inside the container.
+**REQ-11**: 当开发者通过 `-m` 参数指定目录路径时，系统必须将指定的主机目录以只读方式挂载到容器内的相同路径。
 
 > 来源：PRD 目标 5 / Story 3 验收标准 / BDD 场景 "启动指定 agent 带完整配置的交互式终端"
 
-**REQ-12**: When the developer specifies the `-e` parameter with KEY=VALUE pairs, the system shall inject the specified environment variables into the container.
+**REQ-12**: 当开发者通过 `-e` 参数指定 KEY=VALUE 键值对时，系统必须将指定的环境变量注入容器。
 
 > 来源：PRD 目标 5 / Story 3 验收标准 / BDD 场景 "启动指定 agent 带完整配置的交互式终端"
 
-**REQ-13**: When the developer specifies the `-w` parameter with a directory path, the system shall set the specified directory as the working directory inside the container (defaulting to the current directory).
+**REQ-13**: 当开发者通过 `-w` 参数指定目录路径时，系统必须将指定目录设置为容器内的工作目录（默认为当前目录）。
 
 > 来源：PRD 目标 5 / Story 3 验收标准 / BDD 场景 "启动指定 agent 带完整配置的交互式终端"
 
 ## 3. 容器运行 — 特殊模式 (Container Run: Special Modes)
 
-**REQ-14**: When the developer executes the run command without the `-a` parameter, the system shall start the container and enter bash shell with all installed AI agent wrapper functions loaded.
+**REQ-14**: 当开发者执行 run 命令且未指定 `-a` 参数时，系统必须启动容器并进入 bash shell，加载所有已安装的 AI agent wrapper 函数。
 
 > 来源：PRD 替代流程 "无特定 agent — bash 模式" / Story 4 验收标准 / BDD 场景 "不指定 agent 以 bash 模式启动容器"
 
-**REQ-15**: When the developer executes the run command with the `--docker` or `--dind` parameter, the system shall start the container in privileged mode with root user and automatically start the dockerd daemon inside the container.
+**REQ-15**: 当开发者执行 run 命令并附带 `--docker` 或 `--dind` 参数时，系统必须以特权模式启动容器，使用 root 用户并自动启动容器内的 dockerd 守护进程。
 
 > 来源：PRD 替代流程 "Docker-in-Docker 模式" / Story 5 验收标准 / BDD 场景 "以 Docker-in-Docker 特权模式启动容器"
 
-**REQ-16**: When the developer executes the run command with the `-r/--recall` parameter, the system shall restore the full set of parameters from the `.last_args` file and start the container with the identical configuration as the previous run.
+**REQ-16**: 当开发者执行 run 命令并附带 `-r/--recall` 参数时，系统必须从 `.last_args` 文件中恢复全部参数集，并使用与上次运行完全相同的配置启动容器。
 
 > 来源：PRD 替代流程 "恢复上次运行参数" / Story 6 验收标准 / BDD 场景 "通过 -r 参数恢复上次运行参数启动容器"
 
-**REQ-17**: If the `.last_args` file does not exist, the system shall notify the developer that the previous run parameters cannot be recalled and shall not start the container.
+**REQ-17**: 如果 `.last_args` 文件不存在，系统必须通知开发者无法恢复上次运行参数，且不得启动容器。
 
 > 来源：Story 6 验收标准 / BDD 场景 "不存在历史参数时使用 -r 恢复失败"
 
-**REQ-18**: When the developer executes the run command with `--run <command>`, the system shall start the container in the background, execute the specified command, and automatically exit the container with the same exit code as the executed command.
+**REQ-18**: 当开发者执行 run 命令并附带 `--run <command>` 参数时，系统必须在后台启动容器，执行指定命令，然后以与被执行命令相同的退出码自动退出容器。
 
 > 来源：PRD 目标 6 / 替代流程 "后台执行模式" / Story 7 验收标准 / BDD 场景 "后台执行命令后自动退出容器"
 
 ## 4. LLM 端点 — 查看和新增 (Endpoint: View & Add)
 
-**REQ-19**: When the developer executes `endpoint providers`, the system shall list all supported LLM providers and their corresponding AI agents.
+**REQ-19**: 当开发者执行 `endpoint providers` 时，系统必须列出所有受支持的 LLM provider 及其对应的 AI agent。
 
 > 来源：PRD 目标 8 / Story 10 验收标准 / BDD 场景 "查看提供商列表和端点详情"
 
-**REQ-20**: When the developer executes `endpoint list`, the system shall display all endpoints in a table with columns NAME, PROVIDER, and MODEL.
+**REQ-20**: 当开发者执行 `endpoint list` 时，系统必须以表格形式显示所有 endpoint，包含 NAME、PROVIDER 和 MODEL 列。
 
 > 来源：PRD 目标 8 / Story 10 验收标准 / BDD 场景 "查看提供商列表和端点详情"
 
-**REQ-21**: When the developer executes `endpoint show <name>`, the system shall display the detailed configuration of the specified endpoint with the API key masked as the first 8 characters plus `***` plus the last 4 characters.
+**REQ-21**: 当开发者执行 `endpoint show <name>` 时，系统必须显示指定 endpoint 的详细配置，其中 API key 以前 8 位字符加 `***` 加后 4 位字符的形式脱敏显示。
 
 > 来源：PRD 目标 8 / Story 10 验收标准 / BDD 场景 "查看提供商列表和端点详情"
 
-**REQ-22**: When the developer executes `endpoint add <name>` with all required parameters (--provider, --url, --key, --model, --model-opus, --model-sonnet, --model-haiku, --model-subagent), the system shall create a new endpoint with the specified configuration.
+**REQ-22**: 当开发者执行 `endpoint add <name>` 并提供全部必需参数（--provider、--url、--key、--model、--model-opus、--model-sonnet、--model-haiku、--model-subagent）时，系统必须创建具有指定配置的新 endpoint。
 
 > 来源：PRD 目标 9 / Story 8 验收标准 / BDD 场景 "带全部参数新增 LLM 端点"
 
-**REQ-23**: When the developer executes `endpoint add <name>` without providing all required parameters, the system shall interactively prompt for each missing configuration item.
+**REQ-23**: 当开发者执行 `endpoint add <name>` 但未提供全部必需参数时，系统必须交互式地逐一提示输入缺失的配置项。
 
 > 来源：PRD 目标 9 / Story 8 验收标准 / BDD 场景 "缺少参数时交互式新增 LLM 端点"
 
 ## 5. LLM 端点 — 修改、删除和测试 (Endpoint: Modify, Delete & Test)
 
-**REQ-24**: When the developer executes `endpoint set <name>` with updated parameters, the system shall modify the specified endpoint's configuration with the provided values.
+**REQ-24**: 当开发者执行 `endpoint set <name>` 并提供更新后的参数时，系统必须使用提供的值修改指定 endpoint 的配置。
 
 > 来源：PRD 目标 10 / Story 9 验收标准 / BDD 场景 "修改已有端点的配置"
 
-**REQ-25**: When the developer executes `endpoint rm <name>`, the system shall delete the specified endpoint and its corresponding directory.
+**REQ-25**: 当开发者执行 `endpoint rm <name>` 时，系统必须删除指定的 endpoint 及其对应的目录。
 
 > 来源：PRD 目标 10 / Story 9 验收标准 / BDD 场景 "删除 LLM 端点"
 
-**REQ-26**: When the developer executes `endpoint test <name>` and the endpoint is reachable, the system shall send a POST chat/completions request and output the request latency and response summary with exit code 0.
+**REQ-26**: 当开发者执行 `endpoint test <name>` 且 endpoint 可达时，系统必须发送 POST chat/completions 请求，输出请求延迟和响应摘要，并以退出码 0 退出。
 
 > 来源：PRD 目标 10 / Story 11 验收标准 / BDD 场景 "测试端点连通性成功"
 
-**REQ-27**: If the endpoint is unreachable, times out, or returns an authentication error during `endpoint test <name>`, the system shall output a clear error message and return a non-zero exit code.
+**REQ-27**: 如果在 `endpoint test <name>` 过程中 endpoint 不可达、超时或返回认证错误，系统必须输出清晰的错误信息并返回非零退出码。
 
 > 来源：PRD 替代流程 "端点测试失败" / Story 11 验收标准 / BDD 场景 "测试端点连通性失败"
 
 ## 6. LLM 端点 — 同步和映射 (Endpoint: Sync & Mapping)
 
-**REQ-28**: When the developer executes `endpoint apply [name]` without specifying `--agent`, the system shall write the endpoint configuration into the configuration files of all applicable AI agents (claude to `.claude/.env`, opencode to `.opencode/.env`, kimi to `.kimi/config.toml`, deepseek-tui to `.deepseek/.env`).
+**REQ-28**: 当开发者执行 `endpoint apply [name]` 且未指定 `--agent` 参数时，系统必须将 endpoint 配置写入所有适用的 AI agent 配置文件（claude 写入 `.claude/.env`，opencode 写入 `.opencode/.env`，kimi 写入 `.kimi/config.toml`，deepseek-tui 写入 `.deepseek/.env`）。
 
 > 来源：PRD 目标 11 / Story 12 验收标准 / BDD 场景 "同步端点配置到 agent"
 
-**REQ-29**: When the developer executes `endpoint apply` with the `--agent` parameter specifying a comma-separated list of agents, the system shall only sync the endpoint configuration to the specified agents' configuration files.
+**REQ-29**: 当开发者执行 `endpoint apply` 并通过 `--agent` 参数指定逗号分隔的 agent 列表时，系统必须仅将 endpoint 配置同步到指定 agent 的配置文件中。
 
 > 来源：PRD 目标 11 / Story 12 验收标准 / BDD 场景 "同步端点配置到 agent"
 
-**REQ-30**: When the developer executes `endpoint status`, the system shall display a table showing each agent name and its associated endpoint name.
+**REQ-30**: 当开发者执行 `endpoint status` 时，系统必须以表格形式显示每个 agent 名称及其关联的 endpoint 名称。
 
 > 来源：PRD 目标 11 / Story 12 验收标准 / BDD 场景 "查看 agent 端点映射关系"
 
 ## 7. 环境诊断和依赖查询 (Diagnosis & Dependency Query)
 
-**REQ-31**: When the developer executes the doctor command, the system shall perform three-layer environment diagnosis in sequential order: core dependencies (docker, curl, git), runtime (Docker daemon status, permissions), and optional tools (jq, buildx), and output the diagnosis result for each layer.
+**REQ-31**: 当开发者执行 doctor 命令时，系统必须按顺序执行三层环境诊断：核心依赖（docker、curl、git）、运行时（Docker daemon 状态、权限）和可选工具（jq、buildx），并输出每一层的诊断结果。
 
 > 来源：PRD 目标 13 / Story 13 验收标准 / BDD 场景 "环境诊断"
 
-**REQ-32**: If the doctor command detects missing core dependencies, the system shall automatically install the missing components using apt-get, dnf, yum, or brew, and re-check after installation.
+**REQ-32**: 如果 doctor 命令检测到缺少核心依赖，系统必须自动使用 apt-get、dnf、yum 或 brew 安装缺失的组件，并在安装后重新检查。
 
 > 来源：PRD 替代流程 "缺失依赖自动修复" / Story 13 验收标准 / BDD 场景 "环境诊断"
 
-**REQ-33**: When the developer executes the deps command on the host, the system shall generate a detection script, execute it via `docker run --rm` in a temporary container from the target image, output the installation status and version of each component classified as agent, skill, tool, and runtime, and automatically destroy the temporary container after completion.
+**REQ-33**: 当开发者在主机上执行 deps 命令时，系统必须生成检测脚本，通过 `docker run --rm` 在基于目标镜像的临时容器中执行该脚本，输出分类为 agent、skill、tool 和 runtime 的每个组件的安装状态和版本，并在完成后自动销毁临时容器。
 
 > 来源：PRD 目标 12 / Story 14 验收标准 / BDD 场景 "查询容器内依赖安装状态"
 
 ## 8. 离线分发、自更新和帮助 (Offline Distribution, Update & Help)
 
-**REQ-34**: When the developer executes `export [filename]`, the system shall export the Docker image as a tar file (defaulting to `dockercoding.tar`).
+**REQ-34**: 当开发者执行 `export [filename]` 时，系统必须将 Docker 镜像导出为 tar 文件（默认文件名为 `dockercoding.tar`）。
 
 > 来源：PRD 目标 14 / Story 15 验收标准 / BDD 场景 "导出和导入镜像实现离线分发"
 
-**REQ-35**: When the developer executes `import <file>`, the system shall load the Docker image from the specified tar file, making it visible in `docker images` and usable with the run command.
+**REQ-35**: 当开发者执行 `import <file>` 时，系统必须从指定的 tar 文件加载 Docker 镜像，使其在 `docker images` 中可见并可用于 run 命令。
 
 > 来源：PRD 目标 14 / Story 15 验收标准 / BDD 场景 "导出和导入镜像实现离线分发"
 
-**REQ-36**: When the developer executes the update command, the system shall download the latest version from Git remote or UPDATE_URL, embed the new git hash, and update the version number. When the developer executes the version command, the system shall output the formatted version number and current git hash.
+**REQ-36**: 当开发者执行 update 命令时，系统必须从 Git 远程仓库或 UPDATE_URL 下载最新版本，嵌入新的 git hash 并更新版本号。当开发者执行 version 命令时，系统必须输出格式化的版本号和当前 git hash。
 
 > 来源：PRD 目标 15 / Story 16 验收标准 / BDD 场景 "工具自更新和版本信息查看"
 
-**REQ-37**: When the developer appends `--help` to any command or subcommand, the system shall output consistently formatted help information including command usage and parameter descriptions.
+**REQ-37**: 当开发者对任一命令或子命令附加 `--help` 参数时，系统必须输出格式一致的帮助信息，包括命令用法和参数说明。
 
 > 来源：PRD 目标 16 / Story 16 验收标准 / BDD 场景 "工具自更新和版本信息查看"
