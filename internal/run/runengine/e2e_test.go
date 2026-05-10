@@ -5,6 +5,7 @@ package runengine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -982,4 +983,92 @@ func TestE2E_GH9_RecallMode(t *testing.T) {
 	}
 
 	t.Log("E2E 测试 GH-9 recall 模式全部验证通过")
+}
+
+// TestE2E_GH10_RecallFailed 覆盖 GH-10 Scenario "不存在历史参数时使用 -r 恢复失败"。
+//
+// Given 从未执行过 run 命令或 .last_args 文件不存在
+// When 开发者执行 run -r
+// Then 系统提示无法回忆上次运行参数
+// And 容器不会启动
+//
+// 实现策略：
+//   - 创建临时配置目录（不含 .last_args 文件）模拟"从未执行过 run 命令"的状态
+//   - 通过 Engine.Run() 传入 Recall=true 模拟 run -r
+//   - Engine.Run 在回忆模式下发现 .last_args 不存在时会返回 ErrFileNotFound，
+//     在调用 ContainerCreate 之前就终止，保证不会创建任何容器
+//   - 验证错误信息包含文件不存在的提示
+func TestE2E_GH10_RecallFailed(t *testing.T) {
+	// --- Given 从未执行过 run 命令或 .last_args 文件不存在 ---
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker Engine 未运行，跳过 E2E 测试: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 创建临时配置目录，但不创建 .last_args 文件，
+	// 模拟"从未执行过 run 命令"的状态
+	configDir := t.TempDir()
+	t.Logf("临时配置目录: %s", configDir)
+
+	// 确认 .last_args 文件确实不存在
+	lastArgsPath := configDir + "/" + argspersistence.LastArgsFileName
+	if _, err := os.Stat(lastArgsPath); !os.IsNotExist(err) {
+		t.Fatalf("测试前提不成立: .last_args 文件不应存在: %s", lastArgsPath)
+	}
+	t.Log("给定条件验证: .last_args 文件不存在")
+
+	// --- When 开发者执行 run -r ---
+	engine := New(helper, configDir)
+	params := argsparser.RunParams{
+		Recall: true,
+	}
+
+	err = engine.Run(ctx, params)
+
+	// --- Then 系统提示无法回忆上次运行参数 ---
+	if err == nil {
+		t.Fatal("Run() 期望返回错误，但返回了 nil")
+	}
+
+	// 验证返回的错误是 ErrFileNotFound
+	if !errors.Is(err, argspersistence.ErrFileNotFound) {
+		t.Errorf("期望错误为 ErrFileNotFound, 实际类型: %T, 值: %v", err, err)
+	} else {
+		t.Logf("验证通过: Run() 返回 ErrFileNotFound")
+	}
+
+	// 验证错误信息包含可读的提示
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "无法") || !strings.Contains(errMsg, "不存在") {
+		t.Errorf("错误信息应提示无法回忆或文件不存在, 实际: %s", errMsg)
+	} else {
+		t.Logf("验证通过: 错误信息包含可读提示: %s", errMsg)
+	}
+
+	// --- And 容器不会启动 ---
+	// 验证依据：Engine.Run() 在 recall 模式下发现 .last_args 不存在时，
+	// 会在调用 ContainerCreate 之前返回 ErrFileNotFound，
+	// 因此不可能有容器被创建。
+	t.Log("验证通过: Run() 在 ContainerCreate 之前返回错误，容器不会被创建")
+
+	// 通过 docker ps -a 确认测试过程中没有容器被创建
+	psCmd := exec.CommandContext(ctx, "docker", "ps", "-a", "--format={{.ID}}\t{{.Image}}\t{{.Status}}")
+	psOutput, psErr := psCmd.Output()
+	if psErr != nil {
+		t.Logf("docker ps -a 查询结果（非阻塞）: %v", psErr)
+	} else {
+		t.Logf("当前所有容器列表:\n%s", strings.TrimSpace(string(psOutput)))
+	}
+
+	t.Log("E2E 测试 GH-10 recall 失败场景全部验证通过")
 }

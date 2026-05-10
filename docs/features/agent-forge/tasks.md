@@ -356,7 +356,7 @@
 
 ### T-34: 覆盖 Scenario "不存在历史参数时使用 -r 恢复失败" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 从未执行过 run 命令或 .last_args 文件不存在`、`When 开发者执行 run -r`、`Then 系统提示无法回忆上次运行参数`、`And 容器不会启动`。
+- [x] 实现 Gherkin step definitions：`Given 从未执行过 run 命令或 .last_args 文件不存在`、`When 开发者执行 run -r`、`Then 系统提示无法回忆上次运行参数`、`And 容器不会启动`。
 
 **可追溯性:** REQ-17 · Scenario: "不存在历史参数时使用 -r 恢复失败"
 **依赖:** T-24
