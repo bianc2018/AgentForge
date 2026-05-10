@@ -92,7 +92,7 @@ func TestGenerate_DefaultBaseImage(t *testing.T) {
 
 func TestGenerate_MirrorSourceConfig(t *testing.T) {
 	opts := Options{
-		Deps: []string{"claude"},
+		Deps: []string{"claude", "rtk"},
 	}
 	dockerfile, err := Generate(opts)
 	if err != nil {
@@ -125,9 +125,9 @@ func TestGenerate_WithGHProxy(t *testing.T) {
 		t.Error("Generated Dockerfile missing GH_PROXY_URL env var")
 	}
 
-	// Should have applied gh-proxy to go download URL
-	if !strings.Contains(dockerfile, "https://ghproxy.example.com/https://golang.google.cn/dl/") {
-		t.Error("Generated Dockerfile missing gh-proxy prefix on go download URL")
+	// Should NOT apply gh-proxy to Go download URL (golang.google.cn accessible directly)
+	if strings.Contains(dockerfile, "https://ghproxy.example.com/https://golang.google.cn/dl/") {
+		t.Error("Go download URL was incorrectly proxy-prefixed")
 	}
 }
 

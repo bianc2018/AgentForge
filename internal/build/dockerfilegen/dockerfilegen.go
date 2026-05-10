@@ -35,24 +35,67 @@ const (
 	DefaultBaseImage = "docker.1ms.run/centos:7"
 )
 
+// runtimeNeeds 描述一组依赖需要的运行时环境。
+type runtimeNeeds struct {
+	needsNpm bool // 至少一个依赖使用了 npm 安装命令
+	needsPip bool // 至少一个依赖使用了 pip/pip3 安装命令
+	needsGCC bool // 需要 gcc 编译工具（npm 原生模块需要）
+}
+
+// analyzeRuntimeNeeds 预扫描依赖的安装命令，判断需要哪些运行时环境。
+func analyzeRuntimeNeeds(deps []string) (*runtimeNeeds, error) {
+	needs := &runtimeNeeds{}
+	for _, dep := range deps {
+		method, err := depsmodule.ResolveInstallMethod(dep)
+		if err != nil {
+			return nil, fmt.Errorf("分析依赖 %q 安装方式失败: %w", dep, err)
+		}
+		for _, cmd := range method.Commands {
+			cmdLower := strings.ToLower(cmd)
+			if strings.Contains(cmdLower, "npm") {
+				needs.needsNpm = true
+				// npm 安装原生模块通常需要 gcc/g++
+				needs.needsGCC = true
+			}
+			if strings.Contains(cmdLower, "pip3") || strings.Contains(cmdLower, "pip install") {
+				needs.needsPip = true
+			}
+		}
+	}
+	return needs, nil
+}
+
 // Generate 根据提供的选项生成完整的 Dockerfile 内容。
 //
 // 生成的 Dockerfile 结构：
 //  1. FROM 指令（基础镜像）
 //  2. YUM 镜像源配置（阿里云 CentOS Vault，在第一个 yum 操作之前）
 //  3. 系统基础工具安装（curl、git 等）
-//  4. 语言运行时环境准备（Node.js、Python3）
-//  5. npm/pip 国内镜像源配置（通过环境变量，兼容 CentOS 7 pip 9.0.3）
-//  6. GitHub 代理 URL 注入（可选）
-//  7. 依赖安装指令（根据每种依赖的 install method）
-//  8. 清理安装缓存
-//  9. 默认 entrypoint
+//  4. 条件编译工具安装（make、gcc/g++，仅 npm 依赖需要时）
+//  5. 条件语言运行时安装（Node.js/npm、Python3/pip，按需安装）
+//  6. 条件 npm/pip 镜像源配置
+//  7. GitHub 代理 URL 注入（可选）
+//  8. 依赖安装指令（根据每种依赖的 install method）
+//  9. 清理安装缓存
+//  10. 默认 entrypoint
 //
 // 返回合法的 Dockerfile 字符串，不包含注释。
 func Generate(opts Options) (string, error) {
 	baseImage := opts.BaseImage
 	if baseImage == "" {
 		baseImage = DefaultBaseImage
+	}
+
+	// 预分析依赖的运行时需求
+	var needs *runtimeNeeds
+	if len(opts.Deps) > 0 {
+		var err error
+		needs, err = analyzeRuntimeNeeds(opts.Deps)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		needs = &runtimeNeeds{}
 	}
 
 	var sb strings.Builder
@@ -66,27 +109,44 @@ func Generate(opts Options) (string, error) {
 	sb.WriteString("RUN sed -i 's|^mirrorlist=|#mirrorlist=|' /etc/yum.repos.d/CentOS-*.repo && \\\n")
 	sb.WriteString("    sed -i 's|^#baseurl=http://mirror.centos.org/centos/$releasever|baseurl=https://mirrors.aliyun.com/centos-vault/7.9.2009|' /etc/yum.repos.d/CentOS-*.repo\n")
 
-	// 3. 系统基础工具（始终安装）
+	// 3. 系统基础工具（始终安装：下载、解压、版本管理所需）
 	sb.WriteString("\n# 安装基础工具\n")
 	sb.WriteString("RUN yum install -y epel-release && \\\n")
 	sb.WriteString("    yum install -y curl git wget tar gzip unzip && \\\n")
 	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
 
-	// 4. 语言运行时环境准备
-	// CentOS 7 glibc 2.17 无法支持 Node.js >= 18，使用 nodesource 16.x
-	sb.WriteString("\n# 安装 Node.js (npm) 和 Python3 (pip3)\n")
-	sb.WriteString("RUN curl -fsSL https://rpm.nodesource.com/setup_16.x -o /tmp/nodesetup.sh && \\\n")
-	sb.WriteString("    bash /tmp/nodesetup.sh && \\\n")
-	sb.WriteString("    yum install -y nodejs python3 python3-pip && \\\n")
-	sb.WriteString("    rm -f /tmp/nodesetup.sh && \\\n")
-	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+	// 4. 条件编译工具安装（仅当有 npm 依赖需要原生模块编译时）
+	if needs.needsGCC {
+		sb.WriteString("\n# 安装编译工具（用于 npm 原生模块编译）\n")
+		sb.WriteString("RUN yum install -y make gcc gcc-c++ && \\\n")
+		sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+	}
 
-	// 5. npm/pip 国内镜像源配置（通过环境变量而非命令，兼容低版本工具）
-	// CentOS 7 的 pip 9.0.3 不支持 `pip config set`，npm 也存在版本兼容问题
-	sb.WriteString("\n# 配置 npm/pip 国内镜像源\n")
-	sb.WriteString("ENV npm_config_registry=https://registry.npmmirror.com\n")
-	sb.WriteString("ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/\n")
-	sb.WriteString("ENV PIP_TRUSTED_HOST=mirrors.aliyun.com\n")
+	// 5. 条件语言运行时安装
+	// CentOS 7 glibc 2.17 无法支持 Node.js >= 18，使用 nodesource 16.x
+	if needs.needsNpm {
+		sb.WriteString("\n# 安装 Node.js (npm)\n")
+		sb.WriteString("RUN curl -fsSL https://rpm.nodesource.com/setup_16.x -o /tmp/nodesetup.sh && \\\n")
+		sb.WriteString("    bash /tmp/nodesetup.sh && \\\n")
+		sb.WriteString("    yum install -y nodejs && \\\n")
+		sb.WriteString("    rm -f /tmp/nodesetup.sh && \\\n")
+		sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+
+		// npm 国内镜像源配置
+		sb.WriteString("\n# 配置 npm 国内镜像源\n")
+		sb.WriteString("ENV npm_config_registry=https://registry.npmmirror.com\n")
+	}
+	if needs.needsPip {
+		sb.WriteString("\n# 安装 Python3 (pip3)\n")
+		sb.WriteString("RUN yum install -y python3 python3-pip && \\\n")
+		sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+
+		// pip 国内镜像源配置
+		// CentOS 7 的 pip 9.0.3 不支持 `pip config set`，使用环境变量
+		sb.WriteString("\n# 配置 pip 国内镜像源\n")
+		sb.WriteString("ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/\n")
+		sb.WriteString("ENV PIP_TRUSTED_HOST=mirrors.aliyun.com\n")
+	}
 
 	// 6. GitHub 代理配置
 	if opts.GHProxy != "" {
@@ -106,7 +166,7 @@ func Generate(opts Options) (string, error) {
 			// 添加注释标记依赖名称
 			fmt.Fprintf(&sb, "\n# %s (%s)\n", method.Name, method.Type)
 
-			// 应用 gh-proxy 到 Go 下载
+			// 应用 gh-proxy 到 GitHub 下载
 			commands := applyGHProxy(method.Commands, opts.GHProxy)
 
 			for _, cmd := range commands {
@@ -117,9 +177,14 @@ func Generate(opts Options) (string, error) {
 
 	// 8. 清理安装缓存
 	sb.WriteString("\n# 清理安装缓存\n")
-	sb.WriteString("RUN npm cache clean --force 2>/dev/null || true && \\\n")
-	sb.WriteString("    pip3 cache purge 2>/dev/null || true && \\\n")
-	sb.WriteString("    yum clean all 2>/dev/null || true && \\\n")
+	sb.WriteString("RUN ")
+	if needs.needsNpm {
+		sb.WriteString("npm cache clean --force 2>/dev/null || true && \\\n    ")
+	}
+	if needs.needsPip {
+		sb.WriteString("pip3 cache purge 2>/dev/null || true && \\\n    ")
+	}
+	sb.WriteString("yum clean all 2>/dev/null || true && \\\n")
 	sb.WriteString("    rm -rf /tmp/*\n")
 
 	// 9. 默认 entrypoint
@@ -130,6 +195,8 @@ func Generate(opts Options) (string, error) {
 }
 
 // applyGHProxy 在命令中替换 GitHub 相关 URL 为代理 URL。
+// Go 下载（golang.google.cn）可直接访问，不需要代理。
+// 仅对 github.com 域名应用代理替换。
 func applyGHProxy(commands []string, ghProxy string) []string {
 	if ghProxy == "" {
 		return commands
@@ -137,9 +204,7 @@ func applyGHProxy(commands []string, ghProxy string) []string {
 
 	result := make([]string, len(commands))
 	for i, cmd := range commands {
-		// 替换 Go 下载 URL
-		cmd = strings.ReplaceAll(cmd, "https://golang.google.cn/dl/", ghProxy+"https://golang.google.cn/dl/")
-		// 替换 github.com 链接
+		// 替换 github.com 链接（用于 opencode、deepseek-tui 等从 GitHub Releases 下载的依赖）
 		cmd = strings.ReplaceAll(cmd, "https://github.com/", ghProxy+"https://github.com/")
 		result[i] = cmd
 	}

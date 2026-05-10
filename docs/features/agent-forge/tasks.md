@@ -193,7 +193,7 @@
 
 ### T-19: 实现 PT-1 构建时间和 PT-2 镜像体积比性能测试
 
-- [ ] 编写 PT-1：测量 `build -d all --max-retry 3` 完整构建的端到端耗时，阈值 ≤ 15 分钟（基础镜像已缓存），3 次执行取最大值。编写 PT-2：分别构建 `-d all` 和 `-d mini` 镜像，通过 `docker images` 获取 Size 字段计算体积比，阈值 mini < all 的 60%。
+- [x] 编写 PT-1：测量 `build -d all --max-retry 3` 完整构建的端到端耗时，阈值 ≤ 15 分钟（基础镜像已缓存），3 次执行取最大值。编写 PT-2：分别构建 `-d all` 和 `-d mini` 镜像，通过 `docker images` 获取 Size 字段计算体积比，阈值 mini < all 的 60%。
 
 **可追溯性:** NFR-1 · NFR-2
 **依赖:** T-07

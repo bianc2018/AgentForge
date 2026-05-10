@@ -74,7 +74,7 @@ var knownDeps = map[string]*depInfo{
 		name:    "opencode",
 		depType: DepAgent,
 		commands: func(version string) []string {
-			return []string{"npm install -g @opencode-ai/opencode"}
+			return []string{"curl -fsSL https://github.com/opencode-ai/opencode/releases/download/v0.0.55/opencode-linux-x86_64.tar.gz -o /tmp/opencode.tar.gz && tar -C /usr/local/bin -xzf /tmp/opencode.tar.gz opencode && rm -f /tmp/opencode.tar.gz"}
 		},
 	},
 	"kimi": {
@@ -88,7 +88,7 @@ var knownDeps = map[string]*depInfo{
 		name:    "deepseek-tui",
 		depType: DepAgent,
 		commands: func(version string) []string {
-			return []string{"npm install -g deepseek-tui"}
+			return []string{"curl -fsSL https://github.com/Hmbown/DeepSeek-TUI/releases/download/v0.8.27/deepseek-tui-linux-x64 -o /usr/local/bin/deepseek-tui && curl -fsSL https://github.com/Hmbown/DeepSeek-TUI/releases/download/v0.8.27/deepseek-linux-x64 -o /usr/local/bin/deepseek && chmod +x /usr/local/bin/deepseek-tui /usr/local/bin/deepseek"}
 		},
 	},
 
@@ -137,20 +137,6 @@ var knownDeps = map[string]*depInfo{
 	},
 
 	// --- Tools ---
-	"speckit": {
-		name:    "speckit",
-		depType: DepTool,
-		commands: func(version string) []string {
-			return []string{"npm install -g @anthropic-ai/speckit"}
-		},
-	},
-	"openspec": {
-		name:    "openspec",
-		depType: DepTool,
-		commands: func(version string) []string {
-			return []string{"pip3 install open-spec"}
-		},
-	},
 	"gitnexus": {
 		name:    "gitnexus",
 		depType: DepTool,
@@ -176,17 +162,19 @@ var knownDeps = map[string]*depInfo{
 }
 
 // allDeps 是所有依赖的完整列表（用于 "all" 元标签展开）。
+// 注意：speckit 和 openspec 目前无可用公共安装源，从 all 中移除。
+// 待修复：找到 speckit (@anthropic-ai/speckit E404) 和 openspec (open-spec pip E404) 的正确安装方式。
 var allDeps = []string{
 	"claude", "opencode", "kimi", "deepseek-tui",
 	"golang@1.22.3", "node@16",
-	"speckit", "openspec", "gitnexus", "docker", "rtk",
+	"docker", "rtk",
 }
 
-// miniDeps 是常用依赖子集（用于 "mini" 元标签展开）。
+// miniDeps 是常用依赖子集（用于 "mini" 元标签展开），仅包含 AI agent。
+// 注意：golang、node 等运行时不包含在 mini 中，需要时通过 -d 显式指定。
+// 注意：speckit 无可用公共安装源，从 mini 中移除。
 var miniDeps = []string{
 	"claude", "opencode",
-	"golang@1.22.3", "node@16",
-	"speckit", "gitnexus",
 }
 
 // ExpandDeps 将逗号分隔的依赖字符串展开为去重的依赖名称列表。
@@ -202,7 +190,7 @@ var miniDeps = []string{
 // 示例：
 //
 //	ExpandDeps("all")              -> [claude opencode kimi deepseek-tui golang@1.22.3 node@16 speckit ...]
-//	ExpandDeps("mini")             -> [claude opencode golang@1.22.3 node@16 speckit gitnexus]
+//	ExpandDeps("mini")             -> [claude opencode]
 //	ExpandDeps("claude,golang@1.21") -> [claude golang@1.21]
 //	ExpandDeps("")                 -> []
 func ExpandDeps(input string) []string {

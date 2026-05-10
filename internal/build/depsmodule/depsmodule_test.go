@@ -11,18 +11,24 @@ func TestExpandDeps_All(t *testing.T) {
 	if len(result) == 0 {
 		t.Fatal("ExpandDeps(\"all\") returned empty list")
 	}
-	// Verify all known deps are included
-	known := ListAllKnownDeps()
-	unknowMap := make(map[string]bool)
-	for _, dep := range result {
-		baseName, _ := splitNameVersion(dep)
-		unknowMap[baseName] = true
-	}
-	for _, name := range known {
-		if !unknowMap[name] {
-			t.Errorf("ExpandDeps(\"all\") missing dep: %s", name)
+		// Verify all known deps are included (except those intentionally excluded)
+		known := ListAllKnownDeps()
+		// gitnexus needs C++14 for native module compilation, excluded from all
+		// until CentOS 7 base image supports it
+		excluded := map[string]bool{"gitnexus": true}
+		unknowMap := make(map[string]bool)
+		for _, dep := range result {
+			baseName, _ := splitNameVersion(dep)
+			unknowMap[baseName] = true
 		}
-	}
+		for _, name := range known {
+			if excluded[name] {
+				continue
+			}
+			if !unknowMap[name] {
+				t.Errorf("ExpandDeps(\"all\") missing dep: %s", name)
+			}
+		}
 }
 
 func TestExpandDeps_Mini(t *testing.T) {
@@ -158,7 +164,7 @@ func TestResolveInstallMethod_RuntimeWithoutVersion(t *testing.T) {
 }
 
 func TestResolveInstallMethod_Tool(t *testing.T) {
-	method, err := ResolveInstallMethod("speckit")
+	method, err := ResolveInstallMethod("gitnexus")
 	if err != nil {
 		t.Fatalf("ResolveInstallMethod(\"speckit\") error = %v", err)
 	}
@@ -214,8 +220,6 @@ func TestResolveInstallMethod_AllTypes(t *testing.T) {
 		{"deepseek-tui", DepAgent},
 		{"golang", DepRuntime},
 		{"node", DepRuntime},
-		{"speckit", DepTool},
-		{"openspec", DepTool},
 		{"gitnexus", DepTool},
 		{"docker", DepTool},
 		{"rtk", DepTool},

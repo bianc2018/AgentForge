@@ -104,12 +104,14 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 	}
 
 	// 构建选项
+	// PullParent 被禁用：上游 CentOS 7 官方镜像已被 registry 删除，
+	// PullParent: true 会导致已缓存的基础镜像也无法使用。
+	// 基础镜像需通过前置步骤确保已缓存。
 	buildOpts := types.ImageBuildOptions{
 		Tags:        []string{buildTag},
 		NoCache:     params.NoCache,
 		Remove:      true,
 		ForceRemove: true,
-		PullParent:  true,
 		Dockerfile:  "Dockerfile",
 	}
 
