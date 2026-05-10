@@ -148,7 +148,7 @@
 
 ## 8. 离线分发、自更新和帮助 (Offline Distribution, Update & Help)
 
-**REQ-34**: 当开发者执行 `export [filename]` 时，系统必须将 Docker 镜像导出为 tar 文件（默认文件名为 `dockercoding.tar`）。
+**REQ-34**: 当开发者执行 `export [filename]` 时，系统必须将 Docker 镜像导出为 tar 文件（默认文件名为 `agent-forge.tar`）。
 
 > 来源：PRD 目标 14 / Story 15 验收标准 / BDD 场景 "导出和导入镜像实现离线分发"
 

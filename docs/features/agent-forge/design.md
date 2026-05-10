@@ -184,7 +184,7 @@ flowchart TD
 
 ### DistributionEngine
 - **层：** 分发层
-- **职责：** 通过 Docker SDK 的 `ImageSave`/`ImageLoad` API 实现镜像导出导入，支持自定义导出文件名（默认 `dockercoding.tar`）
+- **职责：** 通过 Docker SDK 的 `ImageSave`/`ImageLoad` API 实现镜像导出导入，支持自定义导出文件名（默认 `agent-forge.tar`）
 - **依赖：** Docker Helper
 - **覆盖的 REQ：** REQ-34、REQ-35
 
@@ -492,7 +492,7 @@ erDiagram
 
 ### `agent-forge export [filename]`
 - **描述：** 将 Docker 镜像导出为 tar 文件
-- **默认文件名：** `dockercoding.tar`
+- **默认文件名：** `agent-forge.tar`
 - **退出码：**
   | 退出码 | 条件 |
   |--------|------|
@@ -617,6 +617,29 @@ sequenceDiagram
 
 **替代流程：**
 - *依赖版本不可用（REQ-1）*：包管理器返回错误 → BuildEngine 输出失败原因 → 退出码 1
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as CLI Router
+    participant BE as BuildEngine
+    participant DEP as Deps Module
+    participant DF as Dockerfile Generator
+    participant DH as Docker Helper (SDK)
+    participant DK as Docker Daemon
+
+    Dev->>CLI: build -d claude,golang@1.21,node@20 -b docker.1ms.run/centos:7
+    CLI->>BE: 执行构建
+    BE->>DEP: 展开 deps "claude,golang@1.21,node@20"
+    DEP-->>BE: claude→npm, golang@1.21→go binary, node@20→nodesource
+    BE->>DF: 生成 Dockerfile (centOS + 阿里云源 + 指定版本)
+    DF-->>BE: Dockerfile 内容
+    BE->>DH: ImageBuild(tag=agent-forge:latest, NoCache=false)
+    DH->>DK: POST /build (tar context)
+    DK-->>DH: 构建成功
+    DH-->>BE: 退出码 0
+    BE-->>Dev: 镜像 agent-forge:latest 构建完成
+```
 
 ---
 
@@ -1242,7 +1265,7 @@ sequenceDiagram
     end
 
     Dev->>CLI: version
-    CLI-->>Dev: dockercoding 1.2.0 (abc1234)
+    CLI-->>Dev: agent-forge 1.2.0 (abc1234)
 
     Dev->>CLI: build --help
     CLI-->>Dev: (build 命令完整帮助信息)

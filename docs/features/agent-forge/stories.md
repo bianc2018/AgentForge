@@ -215,7 +215,7 @@ _优先级_：P2
 
 _验收标准_：
 
-- 系统必须支持 `export [文件名]`（默认 `dockercoding.tar`）将 Docker 镜像导出为 tar 文件
+- 系统必须支持 `export [文件名]`（默认 `agent-forge.tar`）将 Docker 镜像导出为 tar 文件
 - 系统必须支持 `import <文件>` 从 tar 文件加载 Docker 镜像
 - 导入成功后，`docker images` 中必须能看到加载的镜像
 - 导入的镜像必须可以正常通过 `run` 启动容器使用 AI agent
