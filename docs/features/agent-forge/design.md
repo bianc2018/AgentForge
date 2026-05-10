@@ -2,7 +2,7 @@
 
 ## 技术概述
 
-AgentForge 采用 Bash 单文件 CLI 架构，通过封装 Docker CLI 命令实现 AI coding agent 的容器全生命周期管理。核心技术方案是动态 Dockerfile 生成与参数化 `docker build` / `docker run` 组装，利用 Docker 容器化天然隔离不同 agent 的运行时依赖（Node.js、Python、Go），并通过 `endpoint` 子系统的文件级 CRUD 统一管理 LLM 服务商配置。系统依赖 Docker Engine (>=20.10) 作为唯一外部容器运行时，所有操作通过 CLI 子命令路由（bash case 语句）调度到构建、运行、端点和诊断四个独立模块，各模块共享一致的参数解析和持久化机制。
+AgentForge 采用 Go 单二进制 CLI 架构（cobra + Docker SDK），通过 Docker Engine API 直接通信实现 AI coding agent 的容器全生命周期管理。核心技术方案是动态 Dockerfile 生成与 SDK 的 `ImageBuild` / `ContainerCreate` 类型安全调用，利用 Docker 容器化天然隔离不同 agent 的运行时依赖（Node.js、Python、Go），并通过 `endpoint` 子系统的文件级 CRUD 统一管理 LLM 服务商配置。系统依赖 Docker Engine (>=20.10) 的 daemon socket（`/var/run/docker.sock`）作为唯一外部容器运行时接口，无需 docker CLI 工具。所有操作通过 cobra 命令路由分发到构建、运行、端点和诊断四个独立模块，各模块共享一致的参数解析和持久化机制。
 
 ---
 
@@ -100,7 +100,7 @@ flowchart TD
 
 ### Docker Helper
 - **层：** 共享层
-- **职责：** 封装 Docker CLI 命令调用（docker build、docker run、docker save、docker load、docker images、docker rm），统一处理退出码和错误输出；检测 BuildKit 支持状态
+- **职责：** 封装 Docker Engine API 调用（通过 `docker/docker` Go SDK），提供类型安全的镜像构建、容器运行、镜像导入导出等操作；统一处理 Docker API 错误类型（`errdefs.IsNotFound`、`errdefs.IsConflict` 等）；检测 Docker daemon 连接状态和 BuildKit 支持
 - **依赖：** Docker Engine >= 20.10（外部）
 - **覆盖的 REQ：** REQ-1 至 REQ-8（构建相关）、REQ-9 至 REQ-18（运行相关）、REQ-34、REQ-35（分发）；NFR-17、NFR-18
 
@@ -112,7 +112,7 @@ flowchart TD
 
 ### BuildEngine
 - **层：** 构建层
-- **职责：** 编排 docker build 过程：接收 `-d` 依赖列表，调用 Dockerfile Generator 生成 Dockerfile，调用 Docker Helper 执行构建；处理 `--no-cache`、`-R/--rebuild`、`--max-retry`、`--gh-proxy` 等参数；实现指数退避重试和国内镜像源替换；管理临时标签和原子替换逻辑
+- **职责：** 编排镜像构建过程：接收 `-d` 依赖列表，调用 Dockerfile Generator 生成 Dockerfile，调用 Docker Helper 通过 SDK 的 `ImageBuild` API 执行构建；处理 `--no-cache`、`-R/--rebuild`、`--max-retry`、`--gh-proxy` 等参数；实现指数退避重试和国内镜像源替换；管理临时标签和原子替换逻辑
 - **依赖：** Dockerfile Generator、Deps Module、Docker Helper
 - **覆盖的 REQ：** REQ-1 至 REQ-8；NFR-1、NFR-2、NFR-10、NFR-11、NFR-20、NFR-23
 
@@ -130,7 +130,7 @@ flowchart TD
 
 ### RunEngine
 - **层：** 运行层
-- **职责：** 编排 docker run 过程：解析 `-a` agent 参数确定启动模式，组装端口映射（`-p`）、目录挂载（`-m`、`--gitnexus`、`--golang`）、环境变量（`-e`）、工作目录（`-w`）；处理四种启动模式（agent 交互、bash+ wrapper、docker-in-docker、后台命令）；调用 Args Persistence 保存/恢复 `.last_args`
+- **职责：** 编排容器运行过程：解析 `-a` agent 参数确定启动模式，组装端口映射（`-p`）、目录挂载（`-m`、`--gitnexus`、`--golang`）、环境变量（`-e`）、工作目录（`-w`）为 SDK 的 `ContainerCreate` 配置结构；处理四种启动模式（agent 交互、bash+ wrapper、Docker-in-Docker、后台命令）；调用 Args Persistence 保存/恢复 `.last_args`
 - **依赖：** Args Persistence、Wrapper Loader、Docker Helper、Config Resolver
 - **覆盖的 REQ：** REQ-9 至 REQ-18；NFR-3、NFR-7、NFR-8、NFR-12
 
@@ -184,7 +184,7 @@ flowchart TD
 
 ### DistributionEngine
 - **层：** 分发层
-- **职责：** 封装 `docker save`（export）和 `docker load`（import），支持自定义导出文件名（默认 `dockercoding.tar`）
+- **职责：** 通过 Docker SDK 的 `ImageSave`/`ImageLoad` API 实现镜像导出导入，支持自定义导出文件名（默认 `dockercoding.tar`）
 - **依赖：** Docker Helper
 - **覆盖的 REQ：** REQ-34、REQ-35
 
@@ -497,7 +497,7 @@ erDiagram
   | 退出码 | 条件 |
   |--------|------|
   | 0 | 导出成功 |
-  | 1 | 镜像不存在或 docker save 失败 |
+  | 1 | 镜像不存在或 ImageSave API 调用失败 |
 
 ---
 
@@ -507,7 +507,7 @@ erDiagram
   | 退出码 | 条件 |
   |--------|------|
   | 0 | 导入成功 |
-  | 1 | 文件不存在或 docker load 失败 |
+  | 1 | 文件不存在或 ImageLoad API 调用失败 |
 - **覆盖的场景：** 导出和导入镜像实现离线分发
 
 ---
@@ -563,9 +563,9 @@ erDiagram
 3. **Docker Helper** 检测 Docker 运行状态和 BuildKit 支持
 4. **Deps Module** 将 `all` 元标签展开为全部 agent、runtime、tool 的完整安装指令列表
 5. **Dockerfile Generator** 生成 Dockerfile：FROM 基础镜像 → 设置国内镜像源 → 安装所有依赖 → 配置环境变量
-6. **BuildEngine** 调用 Docker Helper 执行 `docker build`，传递生成的 Dockerfile
-7. **Docker Helper** 监控构建日志输出，检测网络错误（NFR-10）
-8. **BuildEngine** 构建成功，Docker Helper 确认 `docker images` 中可见新镜像
+6. **BuildEngine** 调用 Docker Helper 通过 SDK `ImageBuild` API 执行构建，传入 Dockerfile tar context
+7. **Docker Helper** 流式读取构建输出，检测网络错误（NFR-10）
+8. **BuildEngine** 构建成功，Docker Helper 通过 `ImageList` API 确认镜像可见
 9. **CLI Router** 以退出码 0 退出
 
 ```mermaid
@@ -576,8 +576,8 @@ sequenceDiagram
     participant BE as BuildEngine
     participant DF as Dockerfile Generator
     participant DEP as Deps Module
-    participant DH as Docker Helper
-    participant DK as Docker Engine
+    participant DH as Docker Helper (SDK)
+    participant DK as Docker Daemon
 
     Dev->>CLI: build -d all --max-retry 3
     CLI->>AP: 解析参数
@@ -589,7 +589,7 @@ sequenceDiagram
     DEP-->>BE: 全量安装指令列表
     BE->>DF: 生成 Dockerfile
     DF-->>BE: Dockerfile 内容
-    BE->>DH: docker build -t agent-forge:latest -f Dockerfile .
+    BE->>DH: ImageBuild(tag=agent-forge:latest, dockerfile)
     DH->>DK: 执行构建（含国内镜像源配置）
     DK-->>DH: 构建成功
     DH-->>BE: 镜像已创建
@@ -613,7 +613,7 @@ sequenceDiagram
    - 安装 golang 1.21 指定版本
    - 安装 node 20.x（nvm 或 nodesource）
    - 安装 claude（npm install -g @anthropic-ai/claude-code）
-4. **BuildEngine** 执行 `docker build`，构建成功后退出码 0
+4. **BuildEngine** 通过 SDK `ImageBuild` 执行构建，构建成功后退出码 0
 
 **替代流程：**
 - *依赖版本不可用（REQ-1）*：包管理器返回错误 → BuildEngine 输出失败原因 → 退出码 1
@@ -623,7 +623,7 @@ sequenceDiagram
 ### 流程：构建过程中网络错误自动重试（Scenario: 构建过程中网络错误时自动重试）
 
 1. **BuildEngine** 启动构建，调用 Dockerfile Generator 生成 Dockerfile（配置 `--gh-proxy https://gh-proxy.example.com` 代理）
-2. **Docker Helper** 执行 `docker build`，首次 GitHub 资源请求超时
+2. **Docker Helper** 执行 `ImageBuild`，首次 GitHub 资源请求超时
 3. **Docker Helper** 识别网络错误（HTTP 请求失败，如连接超时/被拒），通知 BuildEngine
 4. **BuildEngine** 启动指数退避重试：首次等待 1 秒、第二次等待 2 秒、第三次等待 4 秒（NFR-10）
 5. 在第三次重试时资源下载成功，构建继续
@@ -636,21 +636,21 @@ sequenceDiagram
 sequenceDiagram
     participant Dev as 开发者
     participant BE as BuildEngine
-    participant DH as Docker Helper
-    participant DK as Docker Engine
+    participant DH as Docker Helper (SDK)
+    participant DK as Docker Daemon
 
     Dev->>BE: build -d all --max-retry 3
-    BE->>DH: docker build (首次)
+    BE->>DH: ImageBuild (首次)
     DH->>DK: 拉取依赖...
     DK-->>DH: HTTP 连接超时
     DH-->>BE: 网络错误
     BE->>BE: 等待 1s (指数退避)
-    BE->>DH: docker build (第2次)
+    BE->>DH: ImageBuild (第2次)
     DH->>DK: 拉取依赖...
     DK-->>DH: HTTP 请求超时
     DH-->>BE: 网络错误
     BE->>BE: 等待 2s
-    BE->>DH: docker build (第3次)
+    BE->>DH: ImageBuild (第3次)
     DH->>DK: 拉取依赖...
     DK-->>DH: 下载成功
     DH-->>BE: 构建完成
@@ -665,7 +665,7 @@ sequenceDiagram
 2. **Dockerfile Generator** 生成使用临时标签 `agent-forge:tmp-<timestamp>` 的 Dockerfile
 3. **Docker Helper** 执行 `docker build -t agent-forge:tmp-<timestamp> --no-cache`
 4. 构建成功
-5. **BuildEngine** 执行原子替换：删除旧标签 → 创建新标签指向新镜像（docker tag）→ 删除旧镜像 ID（NFR-23）
+5. **BuildEngine** 执行原子替换：`ImageTag` 将临时标签指向新镜像 → `ImageRemove` 删除旧镜像 ID（NFR-23）
 6. 退出码 0
 
 ```mermaid
@@ -673,20 +673,19 @@ sequenceDiagram
     participant Dev as 开发者
     participant BE as BuildEngine
     participant DF as Dockerfile Generator
-    participant DH as Docker Helper
-    participant DK as Docker Engine
+    participant DH as Docker Helper (SDK)
+    participant DK as Docker Daemon
 
     Dev->>BE: build -R -d claude,golang@1.21
     BE->>BE: 设置 --no-cache 标志
     BE->>DF: 生成 Dockerfile（临时标签）
     DF-->>BE: Dockerfile 内容
-    BE->>DH: docker build -t agent-forge:tmp-xxx --no-cache
+    BE->>DH: ImageBuild(tag=agent-forge:tmp-xxx, NoCache=true)
     DH->>DK: 构建中...
     DK-->>DH: 构建成功
     DH-->>BE: 镜像 ID: abc123
-    BE->>DH: 删除旧标签 agent-forge:latest
-    BE->>DH: 创建新标签 agent-forge:latest -> abc123
-    BE->>DH: 删除旧镜像 ID
+    BE->>DH: ImageTag(src=tmp-xxx, target=agent-forge:latest)
+    BE->>DH: ImageRemove(id=旧镜像)
     BE-->>Dev: 退出码 0
 ```
 
@@ -697,21 +696,21 @@ sequenceDiagram
 1. **BuildEngine** 创建临时标签 `agent-forge:tmp-<timestamp>`，启动构建
 2. 构建因依赖安装失败（invalid-package-that-fails）
 3. **Docker Helper** 返回构建失败状态
-4. **BuildEngine** 清理临时镜像标签：`docker rmi agent-forge:tmp-<timestamp>`（若已创建）（NFR-11）
+4. **BuildEngine** 清理临时镜像：`ImageRemove`(id=agent-forge:tmp-xxx)（NFR-11）
 5. 保留原镜像 `agent-forge:latest` 不变
 6. 退出码 非零
 
 ```mermaid
 sequenceDiagram
     participant BE as BuildEngine
-    participant DH as Docker Helper
-    participant DK as Docker Engine
+    participant DH as Docker Helper (SDK)
+    participant DK as Docker Daemon
 
-    BE->>DH: docker build -t agent-forge:tmp-xxx --no-cache
+    BE->>DH: ImageBuild(tag=agent-forge:tmp-xxx, NoCache=true)
     DH->>DK: 构建中...
     DK-->>DH: RUN invalid-package-that-fails — 失败
     DH-->>BE: 构建失败 (退出码非零)
-    BE->>DH: docker rmi agent-forge:tmp-xxx (清理临时镜像)
+    BE->>DH: ImageRemove(id=agent-forge:tmp-xxx) (清理临时镜像)
     BE-->>BE: 保留 agent-forge:latest 不变
     Note over BE: 退出码 非零
 ```
@@ -723,15 +722,15 @@ sequenceDiagram
 1. **CLI Router** 接收 `run -a claude -p 3000:3000 -m /host/data -w /workspace -e OPENAI_KEY=sk-xxx`
 2. **Args Parser** 解析参数：agent=claude, ports=["3000:3000"], mounts=["/host/data"], workdir="/workspace", envs=["OPENAI_KEY=sk-xxx"]
 3. **RunEngine** 从 Config Resolver 获取配置目录路径
-4. **Docker Helper** 组装 docker run 命令：
-   - 镜像：agent-forge:latest
-   - 端口映射：`-p 3000:3000`
-   - 目录挂载：`-v /host/data:/host/data:ro`（默认只读，NFR-8）
-   - 工作目录：`-w /workspace`
-   - 环境变量：`-e OPENAI_KEY=sk-xxx`
-   - 交互模式：`-it`
-   - 入口命令：`claude`
-5. **Docker Helper** 执行 `docker run`
+4. **Docker Helper** 组装 `ContainerCreate` 配置：
+   - Image: agent-forge:latest
+   - PortBindings: 3000:3000
+   - Mounts: /host/data → /host/data（只读，NFR-8）
+   - WorkingDir: /workspace
+   - Env: OPENAI_KEY=sk-xxx
+   - Tty: true, OpenStdin: true
+   - Cmd: ["claude"]
+5. **Docker Helper** 通过 SDK `ContainerCreate` + `ContainerStart` + `ContainerAttach` 启动容器并连接 IO
 6. 容器启动，claude 交互终端可用
 7. **Args Persistence** 自动将所有参数保存到 `.last_args`（NFR-12）
 
@@ -742,9 +741,9 @@ sequenceDiagram
     participant AP as Args Parser
     participant RE as RunEngine
     participant CR as Config Resolver
-    participant DH as Docker Helper
+    participant DH as Docker Helper (SDK)
     participant LA as Args Persistence
-    participant DK as Docker Engine
+    participant DK as Docker Daemon
 
     Dev->>CLI: run -a claude -p 3000:3000 -m /host/data -w /workspace -e OPENAI_KEY=sk-xxx
     CLI->>AP: 解析参数
@@ -752,8 +751,8 @@ sequenceDiagram
     CLI->>RE: 执行 run
     RE->>CR: 解析配置目录
     CR-->>RE: config_dir 路径
-    RE->>DH: 组装 docker run 参数
-    DH->>DK: docker run -it -p 3000:3000 -v /host/data:/host/data:ro -w /workspace -e OPENAI_KEY=sk-xxx agent-forge:latest claude
+    RE->>DH: 组装 ContainerCreate 参数
+    DH->>DK: ContainerCreate(Image=agent-forge, Cmd=claude, Ports=[3000:3000], Mounts=[ro:/host/data], WorkDir=/workspace, Env=[OPENAI_KEY=...]) + ContainerStart + ContainerAttach
     DK-->>DH: 容器启动，claude 终端就绪
     DH-->>RE: 容器正常运行
     RE->>LA: 持久化参数到 .last_args
@@ -766,8 +765,8 @@ sequenceDiagram
 
 1. **Args Parser** 解析不到 `-a` 参数，标记为 bash 模式
 2. **RunEngine** 从 Wrapper Loader 获取 wrapper 函数脚本内容
-3. **Docker Helper** 组装命令：`docker run -it agent-forge:latest bash -c "<wrapper脚本>; bash"`
-4. 容器启动进入 bash shell，wrapper 函数已加载
+3. **Docker Helper** 通过 SDK `ContainerCreate`(Tty=true, OpenStdin=true, Cmd=["bash", "-c", "source wrapper; bash"]) 组装容器配置
+4. `ContainerStart` + `ContainerAttach` 启动容器，进入 bash shell，wrapper 函数已加载
 5. 开发者在容器内可直接调用 `claude`、`opencode`、`kimi`、`deepseek-tui` 等 wrapper 函数
 
 ```mermaid
@@ -775,15 +774,14 @@ sequenceDiagram
     participant Dev as 开发者
     participant RE as RunEngine
     participant WL as Wrapper Loader
-    participant DH as Docker Helper
+    participant DH as Docker Helper (SDK)
     participant Container as 容器
 
     Dev->>RE: run (无 -a)
     RE->>WL: 获取 wrapper 函数脚本
     WL-->>RE: wrapper 函数内容
-    RE->>DH: docker run -it agent-forge bash -c "source wrapper; bash"
-    DH->>Container: 启动容器
-    Container-->>Dev: bash shell + wrapper 函数已加载
+    RE->>DH: ContainerCreate(Image=agent-forge, Tty=true, OpenStdin=true, Cmd=bash, Env=[WRAPPER_SCRIPT])
+    DH->>Container: ContainerStart + ContainerAttach
     Dev->>Container: 输入 claude / opencode / kimi
     Container-->>Dev: agent 交互终端可用
 ```
@@ -794,11 +792,8 @@ sequenceDiagram
 
 1. **Args Parser** 识别 `--docker` 参数
 2. **RunEngine** 设置特权模式标志（NFR-7）
-3. **Docker Helper** 组装命令：
-   - `docker run -it --privileged --user root`
-   - 挂载 `/var/run/docker.sock`（或使用 dind 方案）
-   - 入口命令：启动 dockerd + bash
-4. 容器启动后自动执行 `dockerd &`，等待 dockerd 就绪
+3. **Docker Helper** 通过 SDK `ContainerCreate`(Privileged=true, User="root", Mounts=[docker.sock], Cmd=["bash", "-c", "dockerd &; wait"]) 配置特权容器
+4. `ContainerStart` + `ContainerAttach` 启动容器，dockerd 自动就绪
 5. 开发者可以在容器内执行 `docker ps` 等 docker 命令
 
 ```mermaid
@@ -806,12 +801,12 @@ sequenceDiagram
     participant Dev as 开发者
     participant Args as Args Parser
     participant RE as RunEngine
-    participant DH as Docker Helper
+    participant DH as Docker Helper (SDK)
     participant Container as 容器 (特权模式)
 
     Dev->>Args: run --docker
     Args->>RE: 设置特权模式 + root 用户
-    RE->>DH: docker run -it --privileged --user root agent-forge
+    RE->>DH: ContainerCreate(Image=agent-forge, Privileged=true, User=root)
     DH->>Container: 启动特权容器
     Container->>Container: dockerd & (启动 Docker daemon)
     Container->>Container: 等待 dockerd 就绪 (轮询 docker info)
@@ -836,14 +831,14 @@ sequenceDiagram
     participant Args as Args Parser
     participant RE as RunEngine
     participant AP as Args Persistence
-    participant DH as Docker Helper
+    participant DH as Docker Helper (SDK)
 
     Dev->>Args: run -r
     Args->>RE: 标记为 recall 模式
     RE->>AP: 读取 <config-dir>/.last_args
     alt .last_args 存在
         AP-->>RE: 恢复全部参数 (agent, ports, mounts, envs, workdir)
-        RE->>DH: docker run (使用恢复的参数)
+        RE->>DH: ContainerCreate + ContainerStart (使用恢复的参数)
         DH-->>Dev: 容器启动成功
     else .last_args 不存在
         AP-->>RE: 文件不存在
@@ -862,21 +857,21 @@ sequenceDiagram
 1. **Args Parser** 识别 `--run "npm test"` 参数
 2. **RunEngine** 设置后台执行模式
 3. **Docker Helper** 组装命令：`docker run --rm agent-forge:latest bash -c "npm test"`（无 `-it` 交互标志）
-4. 容器后台启动，执行 `npm test`
-5. 命令执行完成，容器自动退出
-6. **Docker Helper** 获取容器退出码，作为 CLI 退出码传递
+4. Docker Helper 通过 `ContainerCreate`(AutoRemove=true) + `ContainerStart` 后台启动容器
+5. 容器执行 `npm test`，完成自动退出（AutoRemove）
+6. **Docker Helper** 通过 `ContainerWait` 获取容器退出码，作为 CLI 退出码传递
 
 ```mermaid
 sequenceDiagram
     participant Dev as 开发者
     participant Args as Args Parser
     participant RE as RunEngine
-    participant DH as Docker Helper
+    participant DH as Docker Helper (SDK)
     participant Container as 容器
 
     Dev->>Args: run --run "npm test"
     Args->>RE: 设置后台执行模式
-    RE->>DH: docker run --rm agent-forge bash -c "npm test" (无 -it)
+    RE->>DH: ContainerCreate(Image=agent-forge, AutoRemove=true, Cmd=bash -c "npm test")
     DH->>Container: 后台启动容器
     Container->>Container: 执行 npm test
     Container-->>DH: 命令执行完成，退出码 N
@@ -1124,10 +1119,10 @@ sequenceDiagram
 ### 流程：环境诊断（Scenario: 环境诊断）
 
 1. **CLI Router** 接收 `doctor`，路由到 DiagnosticEngine
-2. **第一层 — 核心依赖检测**：检查 docker 是否可执行（Go 单二进制已消除 curl/git 运行时依赖）
+2. **第一层 — 核心依赖检测**：通过 Docker SDK 尝试连接 `/var/run/docker.sock` 验证 daemon 可用性（Go 单二进制已消除 docker CLI/curl/git 运行时依赖，直接通过 Unix socket 通信）
 3. 如果缺失核心依赖，调用 Package Manager Adapter 自动安装（NFR-19）
 4. 安装后重新检测，循环直到全部通过或安装失败
-5. **第二层 — 运行时检测**：`docker info` 检查 Docker daemon 运行状态、当前用户权限
+5. **第二层 — 运行时检测**：通过 SDK `Ping` API 检查 Docker daemon 连通性，`Info` API 检查用户权限
 6. **第三层 — 可选工具检测**：检查 buildx 安装状态（jq 已由 Go `encoding/json` 替代）
 7. 输出每层诊断结果
 
@@ -1141,7 +1136,7 @@ sequenceDiagram
 
     Dev->>CLI: doctor
     CLI->>DE: 执行诊断
-    DE->>DE: 检测核心依赖（docker）
+    DE->>DE: 检测核心依赖（Docker daemon socket 连通性）
     alt 检测到缺失
         DE->>PM: apt-get/dnf/yum/brew install <缺失依赖>
         PM->>OS: 执行安装命令
@@ -1160,8 +1155,8 @@ sequenceDiagram
 
 1. **CLI Router** 接收 `deps`，路由到 Deps Inspector
 2. **Deps Inspector** 生成检测脚本（包含按 agent/skill/tool/runtime 分类的 `which` 和 `--version` 检测命令）
-3. **Docker Helper** 执行 `docker run --rm agent-forge:latest bash -c "<检测脚本>"`
-4. 临时容器启动，执行脚本，输出分类安装状态和版本
+3. **Docker Helper** 通过 SDK `ContainerCreate`(AutoRemove=true, Cmd=["bash", "-c", "<检测脚本>"]) + `ContainerStart` 启动临时容器
+4. 临时容器执行脚本，输出分类安装状态和版本
 5. 检测完成，临时容器自动销毁
 
 ```mermaid
@@ -1169,13 +1164,13 @@ sequenceDiagram
     participant Dev as 开发者
     participant CLI as CLI Router
     participant DI as Deps Inspector
-    participant DH as Docker Helper
+    participant DH as Docker Helper (SDK)
     participant Container as 临时容器
 
     Dev->>CLI: deps
     CLI->>DI: 执行依赖检测
     DI->>DI: 生成检测脚本 (agent/skill/tool/runtime 分类)
-    DI->>DH: docker run --rm agent-forge bash -c <脚本>
+    DI->>DH: ContainerCreate(AutoRemove=true, Cmd=bash -c <脚本>)
     DH->>Container: 启动临时容器 (--rm)
     Container->>Container: 执行检测脚本
     Container-->>DH: agent: claude ✓ 1.0.0 / skill: openspec ✓ 2.1.0 / tool: docker ✓ ...
@@ -1188,27 +1183,27 @@ sequenceDiagram
 
 ### 流程：导出和导入镜像实现离线分发（Scenario: 导出和导入镜像实现离线分发）
 
-1. **export**：CLI Router 路由到 Docker Helper → 执行 `docker save -o <filename> agent-forge:latest`
-2. **import**：CLI Router 路由到 Docker Helper → 执行 `docker load -i <filename>`
-3. import 完成后镜像在 `docker images` 中可见，可通过 `run` 正常启动
+1. **export**：CLI Router 路由到 Docker Helper → 通过 SDK `ImageSave` API 获取 tar stream，写入文件
+2. **import**：CLI Router 路由到 Docker Helper → 通过 SDK `ImageLoad` API 从 tar reader 加载镜像
+3. import 完成后通过 `ImageList` 确认镜像可见，可通过 `run` 正常启动
 
 ```mermaid
 sequenceDiagram
     participant DevA as 开发者 (有网络)
     participant AF as AgentForge (host A)
-    participant DK as Docker Engine
+    participant DK as Docker Daemon
     participant Transfer as 传输介质 (U盘/内网)
     participant DevB as 开发者 (离线)
     participant AFB as AgentForge (host B)
 
     DevA->>AF: export agent-forge.tar
-    AF->>DK: docker save -o agent-forge.tar agent-forge:latest
+    AF->>DK: ImageSave(ref=agent-forge:latest) → tar stream
     DK-->>AF: 导出完成
     AF-->>DevA: agent-forge.tar 已生成
     DevA->>Transfer: 复制 tar 文件
     Transfer->>DevB: tar 文件到达离线机器
     DevB->>AFB: import agent-forge.tar
-    AFB->>DK: docker load -i agent-forge.tar
+    AFB->>DK: ImageLoad(tar reader)
     DK-->>AFB: 镜像加载完成
     AFB-->>DevB: 导入完成
     DevB->>AFB: run -a claude
@@ -1276,7 +1271,7 @@ sequenceDiagram
   - (b) Podman（podman CLI，daemonless 架构）
   - (c) nerdctl + containerd
 - **决策：** Docker Engine（版本 >= 20.10）
-- **理由：** Docker 是最广泛安装的容器运行时，开发者环境中几乎默认存在。Podman 的 daemonless 架构虽然更安全，但与 docker-compose 等生态的兼容性问题更多，且在 build 和 save/load 环节的 CLI 参数不完全兼容（NFR-17 要求 Docker >= 20.10 兼容性，换 Podman 需要适配层）。Trade-off：Docker 需要运行 dockerd 守护进程，增加了诊断层（docker daemon 检测）和特权模式（dind）的复杂度，但作为业内标准，用户接受度最高。
+- **理由：** Docker 是最广泛安装的容器运行时，开发者环境中几乎默认存在。通过 Docker SDK（`/var/run/docker.sock`）直接与 daemon 通信，无需 docker CLI，降低宿主机依赖。Podman 的 daemonless 架构虽然更安全，但其 API 兼容层的 build 和 save/load 行为与 Docker Engine 不完全一致（NFR-17），换 Podman 需要适配层。Trade-off：Docker 需要运行 dockerd 守护进程（daemon），但通过 SDK 直连 socket 无需 CLI 安装，`doctor` 仅检测 socket 连通性即可。
 - **相关需求：** NFR-17（Docker Engine >= 20.10 兼容性）
 
 ### DT-3: env 文件存储配置 vs. TOML/YAML vs. SQLite
