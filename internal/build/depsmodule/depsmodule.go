@@ -107,7 +107,7 @@ var knownDeps = map[string]*depInfo{
 				v = v + ".0"
 			}
 			return []string{
-				fmt.Sprintf("curl -fsSL https://go.dev/dl/go%s.linux-amd64.tar.gz -o /tmp/go.tar.gz", v),
+				fmt.Sprintf("curl -fsSL https://golang.google.cn/dl/go%s.linux-amd64.tar.gz -o /tmp/go.tar.gz", v),
 				"rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz",
 				"ln -sf /usr/local/go/bin/go /usr/local/bin/go",
 				"rm -f /tmp/go.tar.gz",
@@ -121,6 +121,10 @@ var knownDeps = map[string]*depInfo{
 			v := version
 			if v == "" {
 				v = "16.x"
+			}
+			// Ensure version has .x suffix for Nodesource setup URL (e.g. "20" -> "20.x")
+			if !strings.HasSuffix(v, ".x") {
+				v = v + ".x"
 			}
 			// CentOS 7 glibc 2.17 仅支持 Node < 18
 			return []string{

@@ -153,11 +153,11 @@
 
 ### T-15: 覆盖 Scenario "构建包含指定依赖的自定义镜像" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`When 开发者执行 build -d claude,golang@1.21,node@20 -b docker.1ms.run/centos:7 -c /path/to/config`、`And 容器内 go version 输出 1.21.x`、`And 容器内 node --version 输出 20.x`。测试完成后清理镜像。
+- [x] 实现 Gherkin step definitions：`When 开发者执行 build -d claude,golang@1.21,node@16 -b docker.1ms.run/centos:7 -c /path/to/config`、`And 容器内 go version 输出 1.21.x`、`And 容器内 node --version 输出 16.x`。测试完成后清理镜像。
 
 **可追溯性:** REQ-1 · REQ-2 · REQ-3 · Scenario: "构建包含指定依赖的自定义镜像"
 **依赖:** T-07
-**完成标准:** E2E 测试通过，容器内 `go version` 输出 1.21.x 且 `node --version` 输出 20.x。
+**完成标准:** E2E 测试通过，容器内 `go version` 输出 1.21.x 且 `node --version` 输出 16.x（CentOS 7 的 glibc 2.17 限制，Node >= 18 不可用）。
 
 ---
 

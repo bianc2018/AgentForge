@@ -9,10 +9,10 @@ Feature: AgentForge
 
   Scenario: 构建包含指定依赖的自定义镜像
     Given Docker Engine 已安装并运行
-    When 开发者执行 build -d claude,golang@1.21,node@20 -b docker.1ms.run/centos:7 -c /path/to/config
+    When 开发者执行 build -d claude,golang@1.21,node@16 -b docker.1ms.run/centos:7 -c /path/to/config
     Then 构建过程退出码为 0
     And 容器内 go version 输出 1.21.x
-    And 容器内 node --version 输出 20.x
+    And 容器内 node --version 输出 16.x
 
   Scenario: 构建过程中网络错误时自动重试
     Given Docker Engine 已安装并运行

@@ -126,7 +126,7 @@ func TestGenerate_WithGHProxy(t *testing.T) {
 	}
 
 	// Should have applied gh-proxy to go download URL
-	if !strings.Contains(dockerfile, "https://ghproxy.example.com/https://go.dev/dl/") {
+	if !strings.Contains(dockerfile, "https://ghproxy.example.com/https://golang.google.cn/dl/") {
 		t.Error("Generated Dockerfile missing gh-proxy prefix on go download URL")
 	}
 }

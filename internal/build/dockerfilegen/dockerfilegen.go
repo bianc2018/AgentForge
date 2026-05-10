@@ -137,8 +137,8 @@ func applyGHProxy(commands []string, ghProxy string) []string {
 
 	result := make([]string, len(commands))
 	for i, cmd := range commands {
-		// 替换 go.dev 下载 URL
-		cmd = strings.ReplaceAll(cmd, "https://go.dev/dl/", ghProxy+"https://go.dev/dl/")
+		// 替换 Go 下载 URL
+		cmd = strings.ReplaceAll(cmd, "https://golang.google.cn/dl/", ghProxy+"https://golang.google.cn/dl/")
 		// 替换 github.com 链接
 		cmd = strings.ReplaceAll(cmd, "https://github.com/", ghProxy+"https://github.com/")
 		result[i] = cmd

@@ -251,9 +251,9 @@
 
 - **文件:** `docs/features/agent-forge/scenarios.feature`
 - **必要的 Step Definitions:**
-  - `When 开发者执行 build -d claude,golang@1.21,node@20 -b docker.1ms.run/centos:7 -c /path/to/config` → 调用 build 命令
+  - `When 开发者执行 build -d claude,golang@1.21,node@16 -b docker.1ms.run/centos:7 -c /path/to/config` → 调用 build 命令
   - `And 容器内 go version 输出 1.21.x` → 通过 exec 或 run 容器执行 go version
-  - `And 容器内 node --version 输出 20.x` → 通过 exec 或 run 容器执行 node --version
+  - `And 容器内 node --version 输出 16.x` → 通过 exec 或 run 容器执行 node --version
 - **可从其他 Scenarios 复用的 Steps:** `Given Docker Engine 已安装并运行`, `Then 构建过程退出码为 0`
 - **必要的初始状态:** Docker Engine 已运行
 - **可追溯性:** REQ-1 · REQ-2 · REQ-3
