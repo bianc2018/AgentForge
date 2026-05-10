@@ -1,6 +1,7 @@
 package runengine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/docker/docker/api/types/mount"
@@ -18,7 +19,7 @@ func TestAssembleContainerConfig_AgentMode(t *testing.T) {
 		Agent: "claude",
 	}
 
-	config, hostConfig, _ := AssembleContainerConfig(params)
+	config, hostConfig, _ := AssembleContainerConfig(params, "")
 
 	if config.Image != ImageName {
 		t.Errorf("Image = %q, want %q", config.Image, ImageName)
@@ -46,7 +47,7 @@ func TestAssembleContainerConfig_AgentMode(t *testing.T) {
 	}
 }
 
-// TestAssembleContainerConfig_BashMode 验证 bash 模式的配置组装。
+// TestAssembleContainerConfig_BashMode 验证 bash 模式的配置组装（无 wrapper）。
 //
 // 对应 UT-17 覆盖案例：bash 模式 — Cmd 设置为 bash，Tty=true
 func TestAssembleContainerConfig_BashMode(t *testing.T) {
@@ -54,7 +55,7 @@ func TestAssembleContainerConfig_BashMode(t *testing.T) {
 		Agent: "", // 空 Agent 表示 bash 模式
 	}
 
-	config, _, _ := AssembleContainerConfig(params)
+	config, _, _ := AssembleContainerConfig(params, "")
 
 	if !config.Tty {
 		t.Error("Tty = false, want true")
@@ -67,6 +68,188 @@ func TestAssembleContainerConfig_BashMode(t *testing.T) {
 	}
 }
 
+// TestAssembleContainerConfig_BashModeWithWrapper 验证 bash 模式下注入 wrapper 脚本。
+//
+// 对应 UT-17 覆盖案例：bash 模式 — Cmd 包含加载 wrapper 的命令，env 包含 wrapper 脚本
+func TestAssembleContainerConfig_BashModeWithWrapper(t *testing.T) {
+	wrapperScript := "claude() { command claude \"$@\"; }\nopencode() { command opencode \"$@\"; }"
+	params := argsparser.RunParams{
+		Agent: "", // bash 模式
+	}
+
+	config, _, _ := AssembleContainerConfig(params, wrapperScript)
+
+	// 验证 Tty 已启用
+	if !config.Tty {
+		t.Error("Tty = false, want true")
+	}
+	if !config.OpenStdin {
+		t.Error("OpenStdin = false, want true")
+	}
+
+	// 验证 Cmd 为 ["bash", "-c", "<script>"]
+	if len(config.Cmd) != 3 || config.Cmd[0] != "bash" || config.Cmd[1] != "-c" {
+		t.Fatalf("Cmd = %v, want [bash -c <script>]", config.Cmd)
+	}
+	cmdStr := config.Cmd[2]
+	if !strings.Contains(cmdStr, "AGENTFORGE_WRAPPER") {
+		t.Errorf("Cmd should reference AGENTFORGE_WRAPPER env var, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "exec bash") {
+		t.Errorf("Cmd should exec bash after sourcing wrapper, got: %s", cmdStr)
+	}
+
+	// 验证 AGENTFORGE_WRAPPER 环境变量包含 wrapper 脚本
+	foundWrapper := false
+	for _, e := range config.Env {
+		if strings.HasPrefix(e, "AGENTFORGE_WRAPPER=") {
+			foundWrapper = true
+			if !strings.Contains(e, "claude") || !strings.Contains(e, "opencode") {
+				t.Errorf("AGENTFORGE_WRAPPER should contain wrapper functions, got: %s", e)
+			}
+			break
+		}
+	}
+	if !foundWrapper {
+		t.Error("Environment should contain AGENTFORGE_WRAPPER with wrapper script")
+	}
+}
+
+// TestAssembleContainerConfig_DockerInDockerMode 验证 Docker-in-Docker 特权模式配置。
+//
+// 对应 UT-17 覆盖案例：Docker-in-Docker 模式 — Privileged=true, User="root"，dockerd 自动启动
+func TestAssembleContainerConfig_DockerInDockerMode(t *testing.T) {
+	params := argsparser.RunParams{
+		Docker: true,
+		Agent:  "", // bash 模式
+	}
+
+	config, hostConfig, _ := AssembleContainerConfig(params, "claude() { :; }")
+
+	// 验证 User 为 root
+	if config.User != "root" {
+		t.Errorf("User = %q, want %q", config.User, "root")
+	}
+
+	// 验证 Privileged
+	if !hostConfig.Privileged {
+		t.Error("Privileged = false, want true for DIND mode")
+	}
+
+	// 验证 AutoRemove 仍然是 false（交互模式）
+	if hostConfig.AutoRemove {
+		t.Error("AutoRemove = true, want false for interactive DIND mode")
+	}
+
+	// 验证 Cmd 包含 dockerd 启动脚本
+	if len(config.Cmd) != 3 || config.Cmd[0] != "bash" || config.Cmd[1] != "-c" {
+		t.Fatalf("Cmd = %v, want [bash -c <dockerd_start_script>]", config.Cmd)
+	}
+	cmdStr := config.Cmd[2]
+	if !strings.Contains(cmdStr, "dockerd") {
+		t.Errorf("Cmd should start dockerd, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "docker info") {
+		t.Errorf("Cmd should wait for dockerd readiness, got: %s", cmdStr)
+	}
+
+	// 验证 AGENTFORGE_WRAPPER 环境变量在 DIND + bash 模式中仍然存在
+	foundWrapper := false
+	for _, e := range config.Env {
+		if strings.HasPrefix(e, "AGENTFORGE_WRAPPER=") {
+			foundWrapper = true
+			break
+		}
+	}
+	if !foundWrapper {
+		t.Error("DIND + bash mode should have AGENTFORGE_WRAPPER env var")
+	}
+}
+
+// TestAssembleContainerConfig_DockerInDockerWithAgent 验证 Docker-in-Docker + agent 模式。
+//
+// 验证 agent 模式下 DIND 的正确行为：dockerd 启动后执行 agent 命令。
+func TestAssembleContainerConfig_DockerInDockerWithAgent(t *testing.T) {
+	params := argsparser.RunParams{
+		Docker: true,
+		Agent:  "claude",
+	}
+
+	config, hostConfig, _ := AssembleContainerConfig(params, "")
+
+	// 验证 User 为 root
+	if config.User != "root" {
+		t.Errorf("User = %q, want %q", config.User, "root")
+	}
+
+	// 验证 Privileged
+	if !hostConfig.Privileged {
+		t.Error("Privileged = false, want true for DIND mode")
+	}
+
+	// 验证 dockerd 启动后执行 agent 命令
+	if len(config.Cmd) != 3 || config.Cmd[0] != "bash" || config.Cmd[1] != "-c" {
+		t.Fatalf("Cmd = %v, want [bash -c <script>]", config.Cmd)
+	}
+	cmdStr := config.Cmd[2]
+	if !strings.Contains(cmdStr, "dockerd") {
+		t.Errorf("Cmd should start dockerd, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "claude") {
+		t.Errorf("Cmd should execute agent after dockerd ready, got: %s", cmdStr)
+	}
+	if !strings.Contains(cmdStr, "exec") {
+		t.Errorf("Cmd should use exec to replace shell with agent, got: %s", cmdStr)
+	}
+}
+
+// TestAssembleContainerConfig_NoUnnecessaryDockerPrivilege 验证默认模式无特权。
+//
+// 对应 NFR-7: 仅显式传入 --docker/--dind 时启用特权模式
+func TestAssembleContainerConfig_NoUnnecessaryDockerPrivilege(t *testing.T) {
+	t.Run("run without any flags", func(t *testing.T) {
+		params := argsparser.RunParams{}
+		_, hostConfig, _ := AssembleContainerConfig(params, "")
+		if hostConfig.Privileged {
+			t.Error("Privileged = true, want false for default run")
+		}
+	})
+
+	t.Run("run with agent only", func(t *testing.T) {
+		params := argsparser.RunParams{Agent: "claude"}
+		config, hostConfig, _ := AssembleContainerConfig(params, "")
+		if hostConfig.Privileged {
+			t.Error("Privileged = true, want false for agent mode without --docker")
+		}
+		if config.User == "root" {
+			t.Error("User = root, want non-root for agent mode without --docker")
+		}
+	})
+
+	t.Run("run with ports and mounts", func(t *testing.T) {
+		params := argsparser.RunParams{
+			Ports:  []string{"3000:3000"},
+			Mounts: []string{"/data"},
+		}
+		_, hostConfig, _ := AssembleContainerConfig(params, "")
+		if hostConfig.Privileged {
+			t.Error("Privileged = true, want false even with ports/mounts without --docker")
+		}
+	})
+}
+
+// TestAssembleContainerConfig_DockerUserNotRoot 验证非 DIND 模式下 User 不是 root。
+func TestAssembleContainerConfig_DockerUserNotRoot(t *testing.T) {
+	params := argsparser.RunParams{
+		Agent: "opencode",
+	}
+	config, _, _ := AssembleContainerConfig(params, "")
+
+	if config.User == "root" {
+		t.Error("User = root, want empty (non-root) for non-DIND mode")
+	}
+}
+
 // TestAssembleContainerConfig_PortMapping 验证端口映射配置。
 //
 // 对应 UT-17 覆盖案例：端口映射 — PortBindings 正确转换 `-p 3000:3000`
@@ -75,7 +258,7 @@ func TestAssembleContainerConfig_PortMapping(t *testing.T) {
 		Ports: []string{"3000:3000", "8080:80"},
 	}
 
-	_, hostConfig, _ := AssembleContainerConfig(params)
+	_, hostConfig, _ := AssembleContainerConfig(params, "")
 
 	// 验证 PortBindings
 	if len(hostConfig.PortBindings) != 2 {
@@ -115,7 +298,7 @@ func TestAssembleContainerConfig_ReadOnlyMount(t *testing.T) {
 		Mounts: []string{"/host/data"},
 	}
 
-	_, hostConfig, _ := AssembleContainerConfig(params)
+	_, hostConfig, _ := AssembleContainerConfig(params, "")
 
 	if len(hostConfig.Mounts) != 1 {
 		t.Fatalf("len(Mounts) = %d, want 1", len(hostConfig.Mounts))
@@ -144,7 +327,7 @@ func TestAssembleContainerConfig_EnvironmentVariables(t *testing.T) {
 		Envs: []string{"OPENAI_KEY=sk-xxx", "DEBUG=true"},
 	}
 
-	config, _, _ := AssembleContainerConfig(params)
+	config, _, _ := AssembleContainerConfig(params, "")
 
 	if len(config.Env) != 2 {
 		t.Fatalf("len(Env) = %d, want 2", len(config.Env))
@@ -165,7 +348,7 @@ func TestAssembleContainerConfig_WorkingDirectory(t *testing.T) {
 		Workdir: "/workspace",
 	}
 
-	config, _, _ := AssembleContainerConfig(params)
+	config, _, _ := AssembleContainerConfig(params, "")
 
 	if config.WorkingDir != "/workspace" {
 		t.Errorf("WorkingDir = %q, want %q", config.WorkingDir, "/workspace")
@@ -181,7 +364,7 @@ func TestAssembleContainerConfig_MultiPortAndMount(t *testing.T) {
 		Mounts: []string{"/data", "/config", "/logs"},
 	}
 
-	config, hostConfig, _ := AssembleContainerConfig(params)
+	config, hostConfig, _ := AssembleContainerConfig(params, "")
 
 	if len(hostConfig.PortBindings) != 3 {
 		t.Errorf("len(PortBindings) = %d, want 3", len(hostConfig.PortBindings))
@@ -212,7 +395,7 @@ func TestAssembleContainerConfig_ExposedPorts(t *testing.T) {
 		Ports: []string{"3000:3000"},
 	}
 
-	config, _, _ := AssembleContainerConfig(params)
+	config, _, _ := AssembleContainerConfig(params, "")
 
 	portKey, err := nat.NewPort("tcp", "3000")
 	if err != nil {
@@ -227,7 +410,7 @@ func TestAssembleContainerConfig_ExposedPorts(t *testing.T) {
 func TestAssembleContainerConfig_DefaultImage(t *testing.T) {
 	params := argsparser.RunParams{}
 
-	config, _, _ := AssembleContainerConfig(params)
+	config, _, _ := AssembleContainerConfig(params, "")
 
 	if config.Image != ImageName {
 		t.Errorf("Image = %q, want %q", config.Image, ImageName)
@@ -240,7 +423,7 @@ func TestAssembleContainerConfig_DefaultImage(t *testing.T) {
 func TestAssembleContainerConfig_EmptyParams(t *testing.T) {
 	params := argsparser.RunParams{}
 
-	config, hostConfig, _ := AssembleContainerConfig(params)
+	config, hostConfig, _ := AssembleContainerConfig(params, "")
 
 	// 空参数应为 bash 模式
 	if len(config.Cmd) != 1 || config.Cmd[0] != "bash" {
@@ -268,7 +451,7 @@ func TestAssembleContainerConfig_CmdType(t *testing.T) {
 		Agent: "opencode",
 	}
 
-	config, _, _ := AssembleContainerConfig(params)
+	config, _, _ := AssembleContainerConfig(params, "")
 
 	// 检查 Cmd 是否为 strslice.StrSlice
 	if _, ok := any(config.Cmd).(strslice.StrSlice); !ok {

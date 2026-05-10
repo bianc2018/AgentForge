@@ -246,7 +246,7 @@
 
 ### T-23: 在 RunEngine 中实现 bash 模式和 Docker-in-Docker 特权模式
 
-- [ ] 在 RunEngine 中实现 bash 模式（未指定 `-a`）：从 Wrapper Loader 获取 wrapper 脚本，通过环境变量注入容器；Cmd 设置为 `["bash", "-c", "source <wrapper>; bash"]`，Tty=true。实现 Docker-in-Docker 模式（`--docker`/`--dind`）：设置 `Privileged=true`、`User="root"`；容器启动后自动启动 dockerd 并等待就绪；确保仅显式传入 `--docker`/`--dind` 时才启用特权模式（NFR-7）。
+- [x] 在 RunEngine 中实现 bash 模式（未指定 `-a`）：从 Wrapper Loader 获取 wrapper 脚本，通过环境变量注入容器；Cmd 设置为 `["bash", "-c", "source <wrapper>; bash"]`，Tty=true。实现 Docker-in-Docker 模式（`--docker`/`--dind`）：设置 `Privileged=true`、`User="root"`；容器启动后自动启动 dockerd 并等待就绪；确保仅显式传入 `--docker`/`--dind` 时才启用特权模式（NFR-7）。
 
 **可追溯性:** REQ-14 · REQ-15 · NFR-7
 **依赖:** T-21 · T-22
