@@ -501,7 +501,7 @@
 
 ### T-47: 实现 endpoint status 命令和 endpoint 子命令树
 
-- [ ] 实现 `endpoint status`：遍历 `endpoints/` 目录，读取每个端点的 PROVIDER，查询 Provider-Agent Matrix 获取可服务的 agent 列表，输出 Agent | 关联端点的对应表格。搭建 endpoint 9 个子命令（providers、list、show、add、set、rm、test、apply、status）的 cobra 子命令树，确保路由和参数绑定正确。
+- [x] 实现 `endpoint status`：遍历 `endpoints/` 目录，读取每个端点的 PROVIDER，查询 Provider-Agent Matrix 获取可服务的 agent 列表，输出 Agent | 关联端点的对应表格。搭建 endpoint 9 个子命令（providers、list、show、add、set、rm、test、apply、status）的 cobra 子命令树，确保路由和参数绑定正确。
 
 **可追溯性:** REQ-30 · REQ-37
 **依赖:** T-39 · T-40

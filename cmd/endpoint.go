@@ -571,6 +571,115 @@ var endpointTestCmd = &cobra.Command{
 	},
 }
 
+// endpointStatusCmd represents the endpoint status subcommand
+//
+// 以表格形式显示每个 agent 名称及其关联的 endpoint 名称（REQ-30）。
+// 遍历 endpoints/ 目录，读取每个端点的 PROVIDER，查询 Provider-Agent Matrix
+// 获取可服务的 agent 列表，输出 Agent | 关联端点的对应表格。
+var endpointStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "查看 agent 与端点的映射关系",
+	Long: `以表格形式显示每个 AI agent 及其关联的 LLM endpoint。
+
+遍历端点配置目录下的所有端点，读取每个端点的 PROVIDER 字段，
+查询 Provider-Agent Matrix 获取该 provider 可服务的 agent 列表，
+输出 Agent 名称与关联端点名称的对应表格（REQ-30）。
+
+示例：
+  AGENT          关联端点
+  -----          --------
+  claude         my-ep, deepseek-ep
+  opencode       my-ep
+  kimi           deepseek-ep
+  deepseek-tui   deepseek-ep`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		configFlag, _ := cmd.Flags().GetString("config")
+		configDir, err := configresolver.Resolve(configFlag)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 解析配置目录失败\n"+
+					"上下文: 正在为 endpoint status 命令解析配置目录路径\n"+
+					"建议: 请确认 -c 参数指定的路径有效，或使用默认路径\n"+
+					"错误详情: %s", err.Error()),
+			)
+		}
+
+		endpointsDir := filepath.Join(configDir, "endpoints")
+
+		// 遍历端点目录，读取每个端点的 PROVIDER
+		// 构建 agent -> []endpointName 的反向映射表
+		agentToEndpoints := make(map[string][]string)
+
+		entries, err := os.ReadDir(endpointsDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// 端点目录不存在，输出空表头正常退出
+				w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+				fmt.Fprintln(w, "AGENT\t关联端点")
+				fmt.Fprintln(w, "-----\t--------")
+				return w.Flush()
+			}
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 读取端点目录失败\n"+
+					"上下文: 正在读取端点配置目录 %s\n"+
+					"建议: 请确认配置目录存在且有读取权限\n"+
+					"错误详情: %s", endpointsDir, err.Error()),
+			)
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			epDir := filepath.Join(endpointsDir, name)
+
+			cfg, err := endpointmanager.ReadEndpointConfig(epDir)
+			if err != nil {
+				// 无法读取时跳过该端点
+				continue
+			}
+
+			if cfg.Provider == "" {
+				continue
+			}
+
+			// 查询该 provider 可服务的 agent 列表
+			agents := provideragentmatrix.GetAgentsForProvider(cfg.Provider)
+			for _, agent := range agents {
+				agentToEndpoints[agent] = append(agentToEndpoints[agent], name)
+			}
+		}
+
+		// 输出表格：Agent | 关联端点
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "AGENT\t关联端点")
+		fmt.Fprintln(w, "-----\t--------")
+
+		// 按固定顺序显示 agents（与 Provider-Agent Matrix 中的顺序一致）
+		// 收集所有有端点的 agents 并去重排序
+		allProviders := provideragentmatrix.GetProviders()
+		seen := make(map[string]bool)
+		for _, p := range allProviders {
+			agents := provideragentmatrix.GetAgentsForProvider(p)
+			for _, agent := range agents {
+				if seen[agent] {
+					continue
+				}
+				seen[agent] = true
+				endpoints := agentToEndpoints[agent]
+				if len(endpoints) == 0 {
+					continue
+				}
+				fmt.Fprintf(w, "%s\t%s\n", agent, strings.Join(endpoints, ", "))
+			}
+		}
+
+		return w.Flush()
+	},
+}
+
 // endpointApplyCmd represents the endpoint apply subcommand
 //
 // 将端点配置同步到各 AI agent 的配置文件中（REQ-28/REQ-29）。
@@ -682,6 +791,7 @@ func init() {
 	endpointCmd.AddCommand(endpointRmCmd)
 	endpointCmd.AddCommand(endpointTestCmd)
 	endpointCmd.AddCommand(endpointApplyCmd)
+	endpointCmd.AddCommand(endpointStatusCmd)
 
 	endpointAddCmd.Flags().String("provider", "", "LLM 服务商（deepseek / openai / anthropic）")
 	endpointAddCmd.Flags().String("url", "", "API 基础 URL")
