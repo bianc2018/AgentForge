@@ -10,10 +10,14 @@
 package runengine
 
 import (
+	"bytes"
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/docker/docker/api/types"
 
 	"github.com/agent-forge/cli/internal/shared/argsparser"
 	"github.com/agent-forge/cli/internal/shared/dockerhelper"
@@ -445,4 +449,266 @@ func setupSecurityTest(t *testing.T) (*dockerhelper.Client, context.Context, fun
 	}
 
 	return helper, ctx, cleanup
+}
+
+// execInContainerSec 在指定容器内执行命令并返回 stdout 内容。
+//
+// 与 e2e_test.go 中的 execInContainer 功能一致，
+// 但因 e2e_test.go 有 //go:build e2e 构建标签限制，
+// 安全测试中需要独立实现此函数。
+func execInContainerSec(containerID string, args ...string) (string, error) {
+	dockerArgs := append([]string{"exec", containerID}, args...)
+	cmd := exec.Command("docker", dockerArgs...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// TestST3_SingleMountReadOnly 验证单目录挂载为只读模式。
+//
+// 覆盖案例：-m /host/data — 容器内 /host/data 的挂载模式为只读（RW=false）
+//
+// 模拟的攻击向量：容器内进程篡改宿主机文件
+func TestST3_SingleMountReadOnly(t *testing.T) {
+	helper, ctx, cleanup := setupSecurityTest(t)
+	defer cleanup()
+
+	// 创建测试用临时挂载目录（bind mount 需要源路径在宿主机存在）
+	hostMountDir := t.TempDir()
+
+	params := argsparser.RunParams{
+		Mounts: []string{hostMountDir},
+	}
+	config, hostConfig, netConfig := AssembleContainerConfig(params, "")
+	hostConfig.AutoRemove = false
+
+	// 使用 sleep 命令保持容器运行以便 inspect
+	config.Cmd = []string{"sleep", "30"}
+
+	resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+	if err != nil {
+		t.Fatalf("ContainerCreate() error = %v", err)
+	}
+	defer func() {
+		_ = helper.ContainerRemove(ctx, resp.ID, true, false)
+	}()
+
+	// 通过 docker inspect 验证挂载模式
+	inspectData := inspectContainer(t, resp.ID)
+	mountsData := getContainerField(inspectData, "Mounts")
+	if mountsData == nil {
+		t.Fatal("Mounts 不应为空 — 期望有目录挂载")
+	}
+
+	mounts, ok := mountsData.([]interface{})
+	if !ok {
+		t.Fatalf("Mounts 类型错误: %T", mountsData)
+	}
+
+	foundMount := false
+	for _, m := range mounts {
+		mount, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		dest, _ := mount["Destination"].(string)
+		if dest == hostMountDir {
+			foundMount = true
+			// Docker inspect 使用 RW 字段（而非 ReadOnly），RW=false 表示只读
+			rw, _ := mount["RW"].(bool)
+			if rw {
+				t.Errorf("挂载目录 %s 为可读写（RW=true），期望只读（RW=false）", hostMountDir)
+			} else {
+				t.Logf("只读挂载验证通过: %s → RW=false", hostMountDir)
+			}
+			break
+		}
+	}
+	if !foundMount {
+		t.Errorf("未找到挂载目录 %s, 实际 mounts: %v", hostMountDir, mounts)
+	}
+}
+
+// TestST3_WriteToMountDenied 验证容器内尝试写入挂载目录被拒绝。
+//
+// 覆盖案例：容器内尝试写入挂载目录 — 返回权限拒绝错误
+//
+// 模拟的攻击向量：容器内进程修改宿主机文件系统
+func TestST3_WriteToMountDenied(t *testing.T) {
+	helper, ctx, cleanup := setupSecurityTest(t)
+	defer cleanup()
+
+	// 创建测试用临时挂载目录
+	hostMountDir := t.TempDir()
+
+	params := argsparser.RunParams{
+		Mounts: []string{hostMountDir},
+	}
+	config, hostConfig, netConfig := AssembleContainerConfig(params, "")
+	hostConfig.AutoRemove = false
+
+	// 使用 sleep 保持容器运行以便 exec
+	config.Cmd = []string{"sleep", "60"}
+
+	resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+	if err != nil {
+		t.Fatalf("ContainerCreate() error = %v", err)
+	}
+	defer func() {
+		_ = helper.ContainerRemove(ctx, resp.ID, true, false)
+	}()
+
+	// 启动容器
+	if err := helper.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		t.Fatalf("ContainerStart() error = %v", err)
+	}
+
+	// 验证挂载目录存在
+	lsOutput, err := execInContainerSec(resp.ID, "ls", "-d", hostMountDir)
+	if err != nil {
+		t.Fatalf("容器内无法访问挂载目录 %s: %v", hostMountDir, err)
+	}
+	t.Logf("容器内挂载目录可访问: %s", lsOutput)
+
+	// 验证只读：尝试在挂载目录中创建文件应该失败
+	_, writeErr := execInContainerSec(resp.ID, "touch", hostMountDir+"/st3_write_test")
+	if writeErr == nil {
+		t.Error("挂载目录应只读，但 touch 写入未返回错误 — 违反 NFR-8")
+	} else {
+		t.Logf("只读写入拒绝验证通过: %v", writeErr)
+	}
+
+	// 额外验证：尝试创建子目录也应该失败
+	_, mkdirErr := execInContainerSec(resp.ID, "mkdir", "-p", hostMountDir+"/st3_subdir")
+	if mkdirErr == nil {
+		t.Error("挂载目录应只读，但 mkdir 未返回错误 — 违反 NFR-8")
+	} else {
+		t.Logf("只读 mkdir 拒绝验证通过: %v", mkdirErr)
+	}
+}
+
+// TestST3_MultipleMountsAllReadOnly 验证多个 -m 参数均只读。
+//
+// 覆盖案例：多目录挂载 — 所有 -m 指定的目录均为只读
+//
+// 模拟的攻击向量：部分目录未正确设置只读导致配置泄露
+func TestST3_MultipleMountsAllReadOnly(t *testing.T) {
+	helper, ctx, cleanup := setupSecurityTest(t)
+	defer cleanup()
+
+	// 创建两个测试用临时挂载目录
+	hostMountDir1 := t.TempDir()
+	hostMountDir2 := t.TempDir()
+
+	params := argsparser.RunParams{
+		Mounts: []string{hostMountDir1, hostMountDir2},
+	}
+	config, hostConfig, netConfig := AssembleContainerConfig(params, "")
+	hostConfig.AutoRemove = false
+
+	config.Cmd = []string{"sleep", "30"}
+
+	resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+	if err != nil {
+		t.Fatalf("ContainerCreate() error = %v", err)
+	}
+	defer func() {
+		_ = helper.ContainerRemove(ctx, resp.ID, true, false)
+	}()
+
+	// 通过 docker inspect 验证所有挂载均为只读
+	inspectData := inspectContainer(t, resp.ID)
+	mountsData := getContainerField(inspectData, "Mounts")
+	if mountsData == nil {
+		t.Fatal("Mounts 不应为空 — 期望有两个目录挂载")
+	}
+
+	mounts, ok := mountsData.([]interface{})
+	if !ok {
+		t.Fatalf("Mounts 类型错误: %T", mountsData)
+	}
+
+	found1, found2 := false, false
+	for _, m := range mounts {
+		mount, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		dest, _ := mount["Destination"].(string)
+		rw, _ := mount["RW"].(bool)
+
+		if dest == hostMountDir1 {
+			found1 = true
+			if rw {
+				t.Errorf("挂载1 %s 为可读写（RW=true），期望只读", hostMountDir1)
+			} else {
+				t.Logf("挂载1 只读验证通过: %s → RW=false", hostMountDir1)
+			}
+		}
+		if dest == hostMountDir2 {
+			found2 = true
+			if rw {
+				t.Errorf("挂载2 %s 为可读写（RW=true），期望只读", hostMountDir2)
+			} else {
+				t.Logf("挂载2 只读验证通过: %s → RW=false", hostMountDir2)
+			}
+		}
+	}
+	if !found1 {
+		t.Errorf("未找到挂载1 %s, 实际 mounts: %v", hostMountDir1, mounts)
+	}
+	if !found2 {
+		t.Errorf("未找到挂载2 %s, 实际 mounts: %v", hostMountDir2, mounts)
+	}
+}
+
+// TestST3_NoMountNoExtra 验证未指定 -m 时无额外挂载。
+//
+// 覆盖案例：未指定 -m — 无额外挂载
+//
+// 模拟的攻击向量：容器因默认配置意外挂载了宿主机目录
+func TestST3_NoMountNoExtra(t *testing.T) {
+	helper, ctx, cleanup := setupSecurityTest(t)
+	defer cleanup()
+
+	// 默认 run 参数，不指定任何挂载
+	params := argsparser.RunParams{
+		// 不指定 Mounts — 关键：验证无挂载
+	}
+	config, hostConfig, netConfig := AssembleContainerConfig(params, "")
+	hostConfig.AutoRemove = false
+
+	config.Cmd = []string{"sleep", "30"}
+
+	resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+	if err != nil {
+		t.Fatalf("ContainerCreate() error = %v", err)
+	}
+	defer func() {
+		_ = helper.ContainerRemove(ctx, resp.ID, true, false)
+	}()
+
+	// 通过 docker inspect 验证无额外挂载
+	inspectData := inspectContainer(t, resp.ID)
+	mountsData := getContainerField(inspectData, "Mounts")
+
+	if mountsData == nil {
+		t.Log("Mounts 为空 — 无额外挂载验证通过")
+		return
+	}
+
+	mounts, ok := mountsData.([]interface{})
+	if !ok {
+		t.Fatalf("Mounts 类型错误: %T", mountsData)
+	}
+
+	if len(mounts) > 0 {
+		t.Errorf("预期无额外挂载，但发现 %d 个挂载: %v", len(mounts), mounts)
+	} else {
+		t.Log("Mounts 为空切片 — 无额外挂载验证通过")
+	}
 }
