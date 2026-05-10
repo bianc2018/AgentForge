@@ -3,6 +3,7 @@ package buildengine
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -14,7 +15,64 @@ import (
 	"github.com/docker/docker/client"
 )
 
-// --- Unit tests ---
+// --- CalculateBackoff unit tests ---
+
+func TestCalculateBackoff(t *testing.T) {
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{0, 0},
+		{1, 1 * time.Second},
+		{2, 2 * time.Second},
+		{3, 4 * time.Second},
+		{4, 8 * time.Second},
+		{5, 16 * time.Second},
+	}
+	for _, tt := range tests {
+		got := CalculateBackoff(tt.attempt)
+		if got != tt.want {
+			t.Errorf("CalculateBackoff(%d) = %v, want %v", tt.attempt, got, tt.want)
+		}
+	}
+}
+
+// --- isRetryableError unit tests ---
+
+func TestIsRetryableError(t *testing.T) {
+	tests := []struct {
+		err  error
+		want bool
+	}{
+		{fmt.Errorf("connection refused"), true},
+		{fmt.Errorf("no such host"), true},
+		{fmt.Errorf("dial tcp 192.168.1.1:2375: i/o timeout"), true},
+		{fmt.Errorf("connection reset by peer"), true},
+		{fmt.Errorf("TLS handshake timeout"), true},
+		{fmt.Errorf("Cannot connect to the Docker daemon"), true},
+		{fmt.Errorf("EOF"), true},
+		{fmt.Errorf("something else"), false},
+		{nil, false},
+	}
+	for _, tt := range tests {
+		got := isRetryableError(tt.err)
+		if got != tt.want {
+			t.Errorf("isRetryableError(%v) = %v, want %v", tt.err, got, tt.want)
+		}
+	}
+}
+
+// --- RetryExhaustedError tests ---
+
+func TestRetryExhaustedError(t *testing.T) {
+	err := &RetryExhaustedError{MaxRetry: 3}
+	msg := err.Error()
+	if !strings.Contains(msg, "3") {
+		t.Errorf("RetryExhaustedError message should mention retry count: %s", msg)
+	}
+}
+
+// --- ValidateParams tests ---
 
 func TestValidateParams_Valid(t *testing.T) {
 	err := validateParams(BuildParams{MaxRetry: 3})
@@ -33,15 +91,17 @@ func TestValidateParams_NegativeMaxRetry(t *testing.T) {
 	}
 }
 
+// --- createBuildContext tests ---
+
 func TestCreateBuildContext(t *testing.T) {
 	dockerfile := "FROM centos:7\nRUN echo hello\n"
-	r, err := createBuildContext(dockerfile)
+	buf, err := createBuildContext(dockerfile)
 	if err != nil {
 		t.Fatalf("createBuildContext() error = %v", err)
 	}
 
 	// Read the tar content
-	data, err := io.ReadAll(r)
+	data, err := io.ReadAll(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatalf("ReadAll error = %v", err)
 	}
@@ -50,7 +110,18 @@ func TestCreateBuildContext(t *testing.T) {
 	if !bytes.Contains(data, []byte("FROM centos:7")) {
 		t.Error("tar archive missing Dockerfile content")
 	}
+
+	// Verify we can read it multiple times (for retry)
+	data2, err := io.ReadAll(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("second ReadAll error = %v", err)
+	}
+	if !bytes.Equal(data, data2) {
+		t.Error("second read should produce same content")
+	}
 }
+
+// --- isBuildSuccessful tests ---
 
 func TestIsBuildSuccessful(t *testing.T) {
 	tests := []struct {
@@ -73,6 +144,8 @@ func TestIsBuildSuccessful(t *testing.T) {
 	}
 }
 
+// --- Error type tests ---
+
 func TestInvalidParamsError(t *testing.T) {
 	err := &InvalidParamsError{Reason: "test reason"}
 	if !strings.Contains(err.Error(), "test reason") {
@@ -87,10 +160,9 @@ func TestBuildError(t *testing.T) {
 	}
 }
 
-// --- Integration-style tests (require Docker daemon) ---
+// --- BuildEngine integration-style tests ---
 
 func TestBuildEngine_Build_InvalidParams(t *testing.T) {
-	// This test should work without Docker daemon since it fails before reaching Docker
 	helper, err := dockerhelper.NewClient()
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
@@ -143,7 +215,7 @@ func TestBuildEngine_BuildWithMinimalDeps(t *testing.T) {
 		t.Skipf("Docker daemon not available, skipping: %v", err)
 	}
 
-	// Check if base image is already cached (otherwise pull will take too long)
+	// Check if base image is already cached
 	baseImage := dockerfilegen.DefaultBaseImage
 	exists, err := helper.ImageExists(pingCtx, baseImage)
 	if err != nil || !exists {
@@ -177,8 +249,6 @@ func TestBuildEngine_BuildWithMinimalDeps(t *testing.T) {
 
 // Test to verify --no-cache is passed correctly
 func TestBuildEngine_BuildNoCacheOptions(t *testing.T) {
-	// Verify that NoCache is passed through in the ImageBuildOptions
-	// We create a minimal engine then inspect the options via the type
 	opts := types.ImageBuildOptions{
 		NoCache: true,
 	}
@@ -189,7 +259,6 @@ func TestBuildEngine_BuildNoCacheOptions(t *testing.T) {
 
 // TestBuildEngine fails with invalid Docker client
 func TestBuildEngine_Build_WithUnreachableDocker(t *testing.T) {
-	// Create a client with bad socket
 	unreachableClient, err := dockerhelper.NewClientWithOpts(
 		client.WithHost("unix:///var/run/nonexistent.sock"),
 	)
@@ -213,3 +282,4 @@ func TestBuildEngine_Build_WithUnreachableDocker(t *testing.T) {
 	}
 	t.Logf("Build() with unreachable Docker returned expected error: %v", err)
 }
+
