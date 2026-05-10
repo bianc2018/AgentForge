@@ -448,6 +448,131 @@ func TestE2E_GH4_RebuildSuccess(t *testing.T) {
 	}
 }
 
+// TestE2E_GH5_RebuildFailure 覆盖 GH-5 Scenario "重建失败时保留旧镜像"。
+//
+// Given 存在一个已构建的镜像 agent-forge:latest
+// When 开发者执行 build -R -d invalid-package-that-fails
+// Then 系统自动叠加 --no-cache 强制跳过缓存
+// And 构建失败后清理临时标签
+// And 原镜像 agent-forge:latest 保持不变
+// And 构建过程退出码非零
+//
+// 实现策略：先构建一个基础镜像（空依赖）作为 agent-forge:latest，记录其镜像 ID；
+// 然后使用 -R 参数重建（-d invalid-package-that-fails），验证重建失败后原镜像
+// 保持不变且临时标签被清理。
+func TestE2E_GH5_RebuildFailure(t *testing.T) {
+	// Given 存在一个已构建的镜像 agent-forge:latest
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker Engine 未运行，跳过 E2E 测试: %v", err)
+	}
+
+	// 检查基础镜像是否已缓存
+	baseImage := dockerfilegen.DefaultBaseImage
+	exists, err := helper.ImageExists(pingCtx, baseImage)
+	if err != nil || !exists {
+		t.Skipf("基础镜像 %s 未缓存，跳过 E2E 测试", baseImage)
+	}
+
+	// 第一次构建：创建 agent-forge:latest（空依赖）
+	engine := New(helper)
+	defer engine.Close()
+
+	buildCtx, buildCancel := context.WithTimeout(context.Background(), 600*time.Second)
+	defer buildCancel()
+
+	output, err := engine.Build(buildCtx, BuildParams{
+		Deps:     "",
+		MaxRetry: 1,
+	})
+	if err != nil {
+		t.Fatalf("首次 Build() 失败: %v\nOutput: %s", err, output)
+	}
+
+	// 记录首次构建的镜像 ID
+	images, err := helper.ImageList(buildCtx, types.ImageListOptions{})
+	if err != nil {
+		t.Fatalf("ImageList() 失败: %v", err)
+	}
+	origID := ""
+	for _, img := range images {
+		for _, tag := range img.RepoTags {
+			if tag == ImageTag {
+				origID = img.ID
+				break
+			}
+		}
+		if origID != "" {
+			break
+		}
+	}
+	if origID == "" {
+		t.Fatal("首次构建后未找到 agent-forge:latest 镜像")
+	}
+	t.Logf("原镜像 ID: %s", origID)
+
+	// When 开发者执行 build -R -d invalid-package-that-fails
+	output2, err := engine.Build(buildCtx, BuildParams{
+		Deps:     "invalid-package-that-fails",
+		MaxRetry: 1,
+		Rebuild:  true,
+	})
+
+	// Then 构建过程退出码非零
+	if err == nil {
+		t.Fatalf("期望 rebuild 失败，但 Build() 返回了 nil error\nOutput: %s", output2)
+	}
+	t.Logf("Rebuild 失败返回预期错误: %v", err)
+
+	// Then 构建失败后清理临时标签：检查 docker images 中无 agent-forge:tmp-* 残留
+	imagesAfter, err := helper.ImageList(buildCtx, types.ImageListOptions{})
+	if err != nil {
+		t.Fatalf("ImageList() 失败: %v", err)
+	}
+	for _, img := range imagesAfter {
+		for _, tag := range img.RepoTags {
+			if strings.HasPrefix(tag, "agent-forge:tmp-") {
+				t.Errorf("发现残留临时标签: %s（应已被清理）", tag)
+			}
+		}
+	}
+
+	// And 原镜像 agent-forge:latest 保持不变
+	newID := ""
+	for _, img := range imagesAfter {
+		for _, tag := range img.RepoTags {
+			if tag == ImageTag {
+				newID = img.ID
+				break
+			}
+		}
+		if newID != "" {
+			break
+		}
+	}
+	if newID == "" {
+		t.Fatal("重建失败后 agent-forge:latest 镜像丢失")
+	}
+	if newID != origID {
+		t.Errorf("重建失败后镜像 ID 变更：原 %s, 现 %s（期望保持不变）", origID, newID)
+	}
+
+	t.Logf("原镜像验证通过：agent-forge:latest 镜像 ID 未变 (%s)", origID)
+
+	// Cleanup: 清理构建产物
+	_, err = helper.ImageRemove(buildCtx, ImageTag, true, true)
+	if err != nil {
+		t.Logf("Warning: 清理镜像 %s 失败: %v", ImageTag, err)
+	}
+}
+
 // errMockConnectionRefused 用于模拟连接拒绝错误。
 // 模拟 syscall.ECONNREFUSED 的 Error() 方法输出 "connection refused"，
 // 该字符串被 isRetryableError 识别为可重试错误。

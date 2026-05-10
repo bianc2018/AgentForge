@@ -183,7 +183,7 @@
 
 ### T-18: 覆盖 Scenario "重建失败时保留旧镜像" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在一个已构建的镜像 agent-forge:latest`、`When 开发者执行 build -R -d invalid-package-that-fails`、`Then 构建失败后清理临时标签`、`And 原镜像 agent-forge:latest 保持不变`、`And 构建过程退出码非零`。
+- [x] 实现 Gherkin step definitions：`Given 存在一个已构建的镜像 agent-forge:latest`、`When 开发者执行 build -R -d invalid-package-that-fails`、`Then 构建失败后清理临时标签`、`And 原镜像 agent-forge:latest 保持不变`、`And 构建过程退出码非零`。
 
 **可追溯性:** REQ-8 · NFR-11 · Scenario: "重建失败时保留旧镜像"
 **依赖:** T-09
