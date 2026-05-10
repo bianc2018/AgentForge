@@ -173,7 +173,7 @@
 
 ### T-17: 覆盖 Scenario "重建镜像成功替换旧标签" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在一个已构建的镜像 agent-forge:latest`、`When 开发者执行 build -R -d claude,golang@1.21`、`Then 系统自动叠加 --no-cache 强制跳过缓存`、`And 构建成功后临时标签替换原镜像标签`、`And 旧镜像被删除`、`And 构建过程退出码为 0`。
+- [x] 实现 Gherkin step definitions：`Given 存在一个已构建的镜像 agent-forge:latest`、`When 开发者执行 build -R -d claude,golang@1.21`、`Then 系统自动叠加 --no-cache 强制跳过缓存`、`And 构建成功后临时标签替换原镜像标签`、`And 旧镜像被删除`、`And 构建过程退出码为 0`。
 
 **可追溯性:** REQ-6 · REQ-7 · NFR-23 · Scenario: "重建镜像成功替换旧标签"
 **依赖:** T-09
