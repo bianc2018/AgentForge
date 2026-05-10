@@ -226,7 +226,7 @@
 
 ### T-21: 实现 Wrapper Loader 组件
 
-- [ ] 实现 Wrapper Loader：生成包含所有已安装 AI agent wrapper 函数的 bash 脚本（claude、opencode、kimi、deepseek-tui 各有一个同名函数）；生成的脚本语法正确可通过 `bash -n` 验证；函数名互不重叠，每个函数包装对应的 agent 可执行文件调用。
+- [x] 实现 Wrapper Loader：生成包含所有已安装 AI agent wrapper 函数的 bash 脚本（claude、opencode、kimi、deepseek-tui 各有一个同名函数）；生成的脚本语法正确可通过 `bash -n` 验证；函数名互不重叠，每个函数包装对应的 agent 可执行文件调用。
 
 **可追溯性:** REQ-14
 **依赖:** T-01
