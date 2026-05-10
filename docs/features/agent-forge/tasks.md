@@ -431,7 +431,7 @@
 
 ### T-40: 实现 EndpointManager 端点配置存储读写基础
 
-- [ ] 实现 EndpointManager 的配置存储层：端点存储格式为 `<config-dir>/endpoints/<名称>/endpoint.env` 文件（key=value 格式）；实现 `ParseEndpointEnv()` 解析 endpoint.env 文件的全部字段（PROVIDER、URL、KEY、MODEL、MODEL_OPUS、MODEL_SONNET、MODEL_HAIKU、MODEL_SUBAGENT），支持可选字段缺失、多余空白行和格式错误行；实现配置目录的创建和文件写入，文件权限设为 0600（NFR-9）。
+- [x] 实现 EndpointManager 的配置存储层：端点存储格式为 `<config-dir>/endpoints/<名称>/endpoint.env` 文件（key=value 格式）；实现 `ParseEndpointEnv()` 解析 endpoint.env 文件的全部字段（PROVIDER、URL、KEY、MODEL、MODEL_OPUS、MODEL_SONNET、MODEL_HAIKU、MODEL_SUBAGENT），支持可选字段缺失、多余空白行和格式错误行；实现配置目录的创建和文件写入，文件权限设为 0600（NFR-9）。
 
 **可追溯性:** REQ-22 · REQ-23 · NFR-9
 **依赖:** T-02 · T-03
