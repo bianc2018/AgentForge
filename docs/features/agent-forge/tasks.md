@@ -421,7 +421,7 @@
 
 ### T-39: 实现 Provider-Agent Matrix 静态映射表
 
-- [ ] 实现硬编码的 Provider-Agent Matrix：定义 provider（deepseek、openai、anthropic）与可服务的 agent 列表的静态映射关系；deepseek 可服务于 claude/opencode/kimi/deepseek-tui，openai 可服务于 claude/opencode，anthropic 可服务于 claude；提供 `GetProviders()` 和 `GetAgentsForProvider()` 查询方法。
+- [x] 实现硬编码的 Provider-Agent Matrix：定义 provider（deepseek、openai、anthropic）与可服务的 agent 列表的静态映射关系；deepseek 可服务于 claude/opencode/kimi/deepseek-tui，openai 可服务于 claude/opencode，anthropic 可服务于 claude；提供 `GetProviders()` 和 `GetAgentsForProvider()` 查询方法。
 
 **可追溯性:** REQ-19 · REQ-28 · REQ-30
 **依赖:** T-01
