@@ -53,7 +53,7 @@
 
 ### T-05: 实现 Deps Module 依赖展开和安装方式解析
 
-- [ ] 实现 Deps Module：维护 agent（claude、opencode、kimi、deepseek-tui）、runtime（golang@x.y、node@x.y）、tool（speckit、openspec、gitnexus、docker、rtk、kld-sdd/tr-sdd）的安装方式元信息；实现 `ExpandDeps()` 将 `all`/`mini` 元标签展开为完整依赖列表，支持混合元标签+单体依赖；实现 `ResolveInstallMethod()` 返回每个依赖的安装指令；未知依赖名称自动作为系统包名通过 yum 安装。
+- [x] 实现 Deps Module：维护 agent（claude、opencode、kimi、deepseek-tui）、runtime（golang@x.y、node@x.y）、tool（speckit、openspec、gitnexus、docker、rtk、kld-sdd/tr-sdd）的安装方式元信息；实现 `ExpandDeps()` 将 `all`/`mini` 元标签展开为完整依赖列表，支持混合元标签+单体依赖；实现 `ResolveInstallMethod()` 返回每个依赖的安装指令；未知依赖名称自动作为系统包名通过 yum 安装。
 
 **可追溯性:** REQ-1 · REQ-2
 **依赖:** T-01
