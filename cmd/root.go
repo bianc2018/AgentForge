@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -30,8 +31,21 @@ var rootCmd = &cobra.Command{
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once.
+//
+// 退出码规范：
+//   - 0: 命令执行成功
+//   - 1: 通用执行错误（Docker 错误、容器启动失败等）
+//   - 2: 参数错误（无效参数、缺少必填参数、参数格式错误）
+//
+// 特殊命令（如 run --run）可能使用其他退出码传递子进程退出状态。
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		// 检查是否实现了 ExitCoder 接口（自定义退出码）
+		var ec ExitCoder
+		if errors.As(err, &ec) {
+			os.Exit(ec.ExitCode())
+		}
+		// 默认退出码 1
 		os.Exit(1)
 	}
 }

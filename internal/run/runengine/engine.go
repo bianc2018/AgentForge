@@ -42,11 +42,18 @@ exec %s`
 //
 // 用于 --run 后台命令模式，将容器退出码传递到 CLI 层。
 type ExitCodeError struct {
-	ExitCode int
+	Code int
 }
 
 func (e *ExitCodeError) Error() string {
-	return fmt.Sprintf("命令以退出码 %d 结束", e.ExitCode)
+	return fmt.Sprintf("命令以退出码 %d 结束", e.Code)
+}
+
+// ExitCode 实现 ExitCoder 接口，返回容器退出码。
+// 这样 cmd/root.go 的 Execute() 可以通过 ExitCoder 接口检测到 --run 模式
+// 的容器退出码，并使用正确的进程退出码退出。
+func (e *ExitCodeError) ExitCode() int {
+	return e.Code
 }
 
 // Engine 是运行引擎，负责编排完整的容器运行流程。
@@ -266,14 +273,14 @@ func (e *Engine) Run(ctx context.Context, params argsparser.RunParams) error {
 	// --- 步骤 4: 创建容器 ---
 	resp, err := e.helper.ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, "")
 	if err != nil {
-		return fmt.Errorf("创建容器失败: %w", err)
+		return fmt.Errorf("创建容器失败: %w\n建议: 请先执行 agent-forge build 命令构建镜像，或确认镜像名称和 Docker daemon 运行状态", err)
 	}
 
 	containerID := resp.ID
 
 	// --- 步骤 5: 启动容器 ---
 	if err := e.helper.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
-		return fmt.Errorf("启动容器失败: %w", err)
+		return fmt.Errorf("启动容器失败: %w\n建议: 请检查端口是否已被占用，以及 Docker daemon 是否有足够的资源创建新容器", err)
 	}
 
 	// --- 步骤 6: 后台命令模式（--run）---
@@ -281,7 +288,7 @@ func (e *Engine) Run(ctx context.Context, params argsparser.RunParams) error {
 		// 持久化参数（仅非 recall 模式）
 		p := argspersistence.New(e.configDir)
 		if saveErr := p.Save(params); saveErr != nil {
-			return fmt.Errorf("持久化运行参数失败: %w", saveErr)
+			return fmt.Errorf("持久化运行参数失败: %w\n建议: 请检查配置目录的写入权限", saveErr)
 		}
 
 		// 等待容器退出
@@ -289,11 +296,11 @@ func (e *Engine) Run(ctx context.Context, params argsparser.RunParams) error {
 		select {
 		case status := <-statusCh:
 			if status.StatusCode != 0 {
-				return &ExitCodeError{ExitCode: int(status.StatusCode)}
+				return &ExitCodeError{Code: int(status.StatusCode)}
 			}
 			return nil
 		case err := <-errCh:
-			return fmt.Errorf("等待容器退出失败: %w", err)
+			return fmt.Errorf("等待容器退出失败: %w\n建议: 请检查 Docker daemon 运行状态", err)
 		}
 	}
 
@@ -305,14 +312,14 @@ func (e *Engine) Run(ctx context.Context, params argsparser.RunParams) error {
 		Stderr: true,
 	})
 	if err != nil {
-		return fmt.Errorf("附加到容器失败: %w", err)
+		return fmt.Errorf("附加到容器失败: %w\n建议: 请检查终端 TTY 配置和 Docker daemon 状态", err)
 	}
 	defer attachResp.Close()
 
 	// --- 步骤 8: 持久化运行参数（NFR-12）---
 	p := argspersistence.New(e.configDir)
 	if saveErr := p.Save(params); saveErr != nil {
-		return fmt.Errorf("持久化运行参数失败: %w", saveErr)
+		return fmt.Errorf("持久化运行参数失败: %w\n建议: 请检查配置目录的写入权限", saveErr)
 	}
 
 	return nil

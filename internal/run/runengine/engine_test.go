@@ -566,11 +566,15 @@ func TestAssembleContainerConfig_RunCommandModeWithDocker(t *testing.T) {
 
 // TestExitCodeError 验证 ExitCodeError 类型。
 //
-// 验证错误消息格式和 ExitCode 字段。
+// 验证错误消息格式和 ExitCode 字段，以及 ExitCoder 接口的实现。
 func TestExitCodeError(t *testing.T) {
-	err := &ExitCodeError{ExitCode: 42}
-	if err.ExitCode != 42 {
-		t.Errorf("ExitCode = %d, want 42", err.ExitCode)
+	err := &ExitCodeError{Code: 42}
+	if err.Code != 42 {
+		t.Errorf("Code = %d, want 42", err.Code)
+	}
+	// 验证 ExitCoder 接口
+	if ec := err.ExitCode(); ec != 42 {
+		t.Errorf("ExitCode() = %d, want 42", ec)
 	}
 	errMsg := err.Error()
 	if errMsg == "" {
