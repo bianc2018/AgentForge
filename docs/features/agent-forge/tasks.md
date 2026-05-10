@@ -43,7 +43,7 @@
 
 ### T-04: 实现 Docker Helper SDK 基础封装
 
-- [ ] 实现 Docker Helper 组件：封装 Docker Engine API 的客户端创建、Ping（连通性检测）、Info（版本/信息获取）、ImageList（镜像列表查询）；检测 Docker daemon 连接状态和 BuildKit 支持；统一处理 Docker API 错误类型（`errdefs.IsNotFound`、`errdefs.IsConflict` 等）。
+- [x] 实现 Docker Helper 组件：封装 Docker Engine API 的客户端创建、Ping（连通性检测）、Info（版本/信息获取）、ImageList（镜像列表查询）；检测 Docker daemon 连接状态和 BuildKit 支持；统一处理 Docker API 错误类型（`errdefs.IsNotFound`、`errdefs.IsConflict` 等）。
 
 **可追溯性:** REQ-1 · NFR-17 · NFR-18
 **依赖:** T-01
