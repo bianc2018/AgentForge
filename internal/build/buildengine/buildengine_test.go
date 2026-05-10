@@ -283,3 +283,33 @@ func TestBuildEngine_Build_WithUnreachableDocker(t *testing.T) {
 	t.Logf("Build() with unreachable Docker returned expected error: %v", err)
 }
 
+// --- Rebuild mode tests ---
+
+func TestRebuild_SuccessPath_WithoutDocker(t *testing.T) {
+	// Test that a rebuild build with unreachable Docker properly returns error
+	// (doesn't panic, doesn't create temporary artifacts)
+	unreachableClient, err := dockerhelper.NewClientWithOpts(
+		client.WithHost("unix:///var/run/nonexistent.sock"),
+	)
+	if err != nil {
+		t.Fatalf("NewClientWithOpts() error = %v", err)
+	}
+	defer unreachableClient.Close()
+
+	engine := New(unreachableClient)
+	defer engine.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = engine.Build(ctx, BuildParams{
+		Deps:     "claude",
+		MaxRetry: 1,
+		Rebuild:  true,
+	})
+	if err == nil {
+		t.Fatal("Build() expected error with unreachable Docker daemon in rebuild mode")
+	}
+	t.Logf("Rebuild mode with unreachable Docker returned expected error: %v", err)
+}
+

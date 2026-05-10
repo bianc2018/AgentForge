@@ -93,7 +93,7 @@
 
 ### T-09: 在 BuildEngine 中实现 rebuild 模式
 
-- [ ] 在 BuildEngine 中实现 `-R/--rebuild` 重建模式：自动叠加 `--no-cache`；使用临时标签 `agent-forge:tmp-<timestamp>` 进行构建；构建成功后执行原子替换（`ImageTag` 将临时标签指向新镜像 → `ImageRemove` 删除旧镜像）；构建失败时清理临时标签，保留原镜像 `agent-forge:latest` 不变；构建成功退出码 0，失败退出码非零（NFR-11, NFR-23）。
+- [x] 在 BuildEngine 中实现 `-R/--rebuild` 重建模式：自动叠加 `--no-cache`；使用临时标签 `agent-forge:tmp-<timestamp>` 进行构建；构建成功后执行原子替换（`ImageTag` 将临时标签指向新镜像 → `ImageRemove` 删除旧镜像）；构建失败时清理临时标签，保留原镜像 `agent-forge:latest` 不变；构建成功退出码 0，失败退出码非零（NFR-11, NFR-23）。
 
 **可追溯性:** REQ-7 · REQ-8 · NFR-11 · NFR-23
 **依赖:** T-07
