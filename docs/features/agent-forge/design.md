@@ -82,7 +82,7 @@ flowchart TD
 
 ### CLI Router
 - **层：** 入口层
-- **职责：** 解析第一级子命令（build、run、endpoint、doctor、deps、export、import、update、version、help），通过 bash case 语句路由到对应模块执行；默认子命令为 `run`
+- **职责：** 解析第一级子命令（build、run、endpoint、doctor、deps、export、import、update、version、help），通过 cobra 命令路由框架分发到对应模块执行；默认子命令为 `run`
 - **依赖：** Help System、Args Parser、Docker Helper、Config Resolver，以及所有子命令模块
 - **覆盖的 REQ：** REQ-37（help）
 
@@ -283,7 +283,7 @@ erDiagram
 
 ### Provider-Agent Matrix（内部映射表）
 
-硬编码在 Bash 脚本中的静态映射关系，定义每个 LLM provider 可服务于哪些 agent：
+硬编码在源码中的静态映射关系，定义每个 LLM provider 可服务于哪些 agent：
 
 | Provider | 可服务的 Agent |
 |----------|---------------|
@@ -935,16 +935,16 @@ sequenceDiagram
 
 ## 技术决策
 
-### DT-1: Bash 单文件 vs. Python/Go 多文件 CLI
+### DT-1: Go 单二进制 vs. Bash/Python CLI
 
 - **问题：** 如何组织 AgentForge CLI 工具的实现语言和文件结构
 - **替代方案：**
   - (a) Bash 单文件脚本
   - (b) Python 多文件项目（click/argparse + requests）
   - (c) Go 单二进制（cobra + docker SDK）
-- **决策：** Bash 单文件脚本
-- **理由：** Bash 可直接透传 Docker CLI 命令而无需子进程管理或 JSON 解析，零构建步骤 — 修改即时生效，天然与 shell 环境交互。与 Python/Go 相比，避免了 Python 的虚拟环境和依赖安装、Go 的交叉编译和构建流水线。核心 trade-off：逻辑复杂度高时维护门槛上升（Bash 缺少类型系统和模块化），但 AgentForge 的核心是编排 Docker 命令的手套代码（glue code），复杂度可控。
-- **相关需求：** NFR-5（1 秒内完成非构建类命令 — Bash 直接执行无启动延迟）
+- **决策：** Go 单二进制（cobra + docker SDK）
+- **理由：** AgentForge 的核心逻辑已超过 Bash 可维护阈值（目前 2200+ 行，且持续增长）。Bash 缺少类型系统，错误处理依赖 `set -e` 和 trap 链，在管理 API key、文件路径、JSON 解析等关键操作时缺乏编译期安全保障。Go 的选择理由：（1）`cobra` 提供结构化 CLI 子命令路由、自动生成 help、参数校验，天然匹配 AgentForge 的 10 个命令 + endpoint 9 个子命令体系；（2）`docker/docker` client SDK 提供类型安全的 Docker API 调用，替代 Bash 中的字符串拼接 `docker run` 命令；（3）单静态二进制分发 — `go build` 产出无外部依赖的可执行文件，无需宿主机的 curl/git/jq；（4）强类型和显式错误返回确保端点配置写入、构建参数校验等关键路径的安全性；（5）`embed` 可将 Dockerfile 模板编译进二进制，消除运行时文件生成。与 Python 相比，Go 避免了虚拟环境、pip 依赖和 CPython 运行时兼容问题。
+- **相关需求：** NFR-5（Go 二进制启动 < 10ms，无解释器延迟）、NFR-6~NFR-9（类型安全强化 API key 处理）、NFR-17~NFR-20（单二进制消除宿主依赖）
 
 ### DT-2: Docker 作为容器运行时 vs. Podman / containerd
 
@@ -965,7 +965,7 @@ sequenceDiagram
   - (b) TOML 或 YAML 配置文件
   - (c) SQLite 嵌入式数据库
 - **决策：** 使用 `KEY=VALUE` 格式的 `.env` 文件
-- **理由：** `.env` 文件可以用 bash 原生操作完成全部 CRUD：source 加载、`grep ^KEY=` 查询、`sed -i s/KEY=old/KEY=new/` 修改、`rm -rf` 删除，零外部依赖。TOML/YAML 需要用额外的解析器（yq、yj），SQLite 需要 sqlite3 CLI 或重写复杂 shell 逻辑。Trade-off：缺少数据结构支持（嵌套对象、数组）和类型系统，但 endpoint 配置是扁平的 key-value 映射，嵌套场景不存在。
+- **理由：** `.env` 文件是扁平的 key-value 映射，与端点配置的数据结构天然匹配（无嵌套对象或数组）。Go 标准库的 `bufio.Scanner` 可高效完成逐行读写，无需引入 TOML/YAML 解析库或 SQLite CGO 依赖。`.env` 格式的人类可读性优于二进制格式，开发者可用任意文本编辑器直接修改。与 TOML/YAML 相比，`.env` 文件在容器生态中广泛使用（docker --env-file、docker-compose），与 AgentForge 的容器化定位一致。
 - **相关需求：** REQ-22（endpoint add）、NFR-9（文件权限 0600）
 
 ### DT-4: 动态 Dockerfile 生成 vs. 固定多阶段 Dockerfile vs. docker commit
@@ -979,15 +979,15 @@ sequenceDiagram
 - **理由：** Dockerfile 的每一行 RUN 指令都会产生一个缓存层，方案 a 根据用户选择的依赖列表精确生成最小层数，充分利用 Docker 缓存（未改变的步骤复用缓存层）。方案 b（多阶段 + build args）需要枚举所有可能的依赖组合，难以支持版本号参数（如 `golang@1.21` vs `golang@1.22`）。方案 c（commit）不可重复构建，违反基础设施即代码原则。Trade-off：需维护 Dockerfile 模板逻辑，但缓存效率和灵活性最优。
 - **相关需求：** REQ-1、REQ-2（-d 和 -b 参数）；NFR-1（15 分钟构建完成）、NFR-2（mini 镜像小于 all 的 60%）
 
-### DT-5: Shell 层指数退避重试 vs. Docker BuildKit 内置重试
+### DT-5: 应用层指数退避重试 vs. Docker BuildKit 内置重试
 
 - **问题：** 构建过程中网络错误时如何实现重试
 - **替代方案：**
-  - (a) 在 bash 脚本层用循环包装 `docker build` 命令，检测构建日志中的网络错误
+  - (a) 在应用层用循环包装 `docker build` 调用，检测构建输出的网络错误特征
   - (b) 依赖 Docker BuildKit 的 `--retry` 参数
-  - (c) 不在脚本层重试，仅在构建失败时提示用户手动重试
-- **决策：** 方案 a — shell 层循环重试，配合指数退避
-- **理由：** BuildKit 的 `--retry`（实际是 `BUILDKIT_RETRY_DOWNLOAD`）只重试单个下载步骤，但 Docker build 的整个 RUN 层可能因 yum install 中途网络中断而整体失败。在 shell 层重试整个构建可以捕获所有错误。Trade-off：重试整个构建比单步重试耗时更长，但 NFR-10 的指数退避策略确保等待时间可控（1s, 2s, 4s...），且 `--max-retry` 可限制总等待时间。
+  - (c) 不在应用层重试，仅在构建失败时提示用户手动重试
+- **决策：** 方案 a — 应用层循环重试，配合指数退避
+- **理由：** BuildKit 的 `--retry`（实际是 `BUILDKIT_RETRY_DOWNLOAD`）只重试单个下载步骤，但 Docker build 的整个 RUN 层可能因 yum install 中途网络中断而整体失败。在应用层重试整个构建可以捕获所有错误。Trade-off：重试整个构建比单步重试耗时更长，但 NFR-10 的指数退避策略确保等待时间可控（1s, 2s, 4s...），且 `--max-retry` 可限制总等待时间。
 - **相关需求：** REQ-4、NFR-10（指数退避策略，默认 3 次重试）
 
 ### DT-6: .last_args 文件持久化 vs. Docker 容器 label vs. shell 历史
