@@ -471,7 +471,7 @@
 
 ### T-44: 实现 EndpointManager 的 endpoint set 和 rm 命令
 
-- [ ] 实现 `endpoint set <name>`：读取指定端点的 endpoint.env，更新提供的字段值，写回文件，权限保持 0600；端点不存在时返回退出码 1。实现 `endpoint rm <name>`：递归删除 `<config-dir>/endpoints/<name>/` 整个目录；端点不存在时返回退出码 1；删除后 `endpoint list` 输出中不再包含被删除的端点。
+- [x] 实现 `endpoint set <name>`：读取指定端点的 endpoint.env，更新提供的字段值，写回文件，权限保持 0600；端点不存在时返回退出码 1。实现 `endpoint rm <name>`：递归删除 `<config-dir>/endpoints/<name>/` 整个目录；端点不存在时返回退出码 1；删除后 `endpoint list` 输出中不再包含被删除的端点。
 
 **可追溯性:** REQ-24 · REQ-25
 **依赖:** T-40
@@ -481,7 +481,7 @@
 
 ### T-45: 实现 EndpointManager 的 endpoint test 连通性测试
 
-- [ ] 实现 `endpoint test <name>`：读取端点配置中的 URL 和 KEY，通过 Go `net/http` 向 `{URL}/chat/completions` 发送 POST 请求（含认证头）；请求超时时间设为 30 秒（NFR-4）；请求成功时测量并输出延迟和回复摘要，退出码 0；请求失败（连接超时、DNS 解析失败、认证错误、端点不可达）时输出符合 NFR-16 格式（原因 + 上下文 + 建议）的错误信息，退出码非零。
+- [x] 实现 `endpoint test <name>`：读取端点配置中的 URL 和 KEY，通过 Go `net/http` 向 `{URL}/chat/completions` 发送 POST 请求（含认证头）；请求超时时间设为 30 秒（NFR-4）；请求成功时测量并输出延迟和回复摘要，退出码 0；请求失败（连接超时、DNS 解析失败、认证错误、端点不可达）时输出符合 NFR-16 格式（原因 + 上下文 + 建议）的错误信息，退出码非零。
 
 **可追溯性:** REQ-26 · REQ-27 · NFR-4 · NFR-16
 **依赖:** T-40

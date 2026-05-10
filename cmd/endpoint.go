@@ -497,6 +497,79 @@ var endpointRmCmd = &cobra.Command{
 	},
 }
 
+// endpointTestCmd represents the endpoint test subcommand
+//
+// 测试指定 LLM 端点的连通性（REQ-26/REQ-27）。
+// 通过 Go net/http 向端点发送 POST chat/completions 请求，测量延迟并输出回复摘要。
+// 请求超时时间设为 30 秒（NFR-4）。
+// 端点不可达/超时/认证失败时输出符合 NFR-16 格式的错误信息，退出码非零。
+var endpointTestCmd = &cobra.Command{
+	Use:   "test <name>",
+	Short: "测试端点连通性",
+	Long: `测试指定 LLM 端点的连通性（REQ-26/REQ-27）。
+
+通过 Go net/http 向端点 URL 发送 POST chat/completions 请求，
+测量请求延迟并输出回复摘要。请求超时时间设为 30 秒（NFR-4）。
+
+端点可达时输出延迟和回复摘要，退出码 0。
+端点不可达、超时或返回认证错误时输出清晰的错误信息，退出码非零。
+
+示例：
+  agent-forge endpoint test my-ep
+
+输出（成功）:
+  >> 端点 my-ep 连通性测试
+  请求延迟: 320ms
+  响应模型: gpt-4
+  回复摘要: Hello! How can I help you today?
+
+输出（失败）:
+  >> 端点 my-ep 连通性测试
+  原因: 请求超时（30 秒）
+  上下文: 在 30 秒内无法连接到 https://api.example.com/chat/completions
+  建议: 请检查网络连通性，确认 URL 可达，或增加超时时间`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		// --- 解析配置目录 ---
+		configFlag, _ := cmd.Flags().GetString("config")
+		configDir, err := configresolver.Resolve(configFlag)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf("原因: 解析配置目录失败\n"+
+					"上下文: 正在为 endpoint test 命令解析配置目录路径\n"+
+					"建议: 请确认 -c 参数指定的路径有效，或使用默认路径\n"+
+					"错误详情: %s", err.Error()),
+			)
+		}
+
+		endpointDir := filepath.Join(configDir, "endpoints", name)
+
+		fmt.Printf(">> 端点 %s 连通性测试\n", name)
+
+		result, err := endpointmanager.TestEndpoint(endpointDir)
+		if err != nil {
+			return newExitCodeError(1,
+				fmt.Sprintf(">> 端点 %s 连通性测试\n%s", name, err.Error()),
+			)
+		}
+
+		// 输出成功结果
+		latencyStr := fmt.Sprintf("%dms", result.Latency.Milliseconds())
+		if result.Latency.Milliseconds() < 1000 {
+			latencyStr = fmt.Sprintf("%dms", result.Latency.Milliseconds())
+		} else {
+			latencyStr = fmt.Sprintf("%.2fs", result.Latency.Seconds())
+		}
+
+		fmt.Printf("  请求延迟: %s\n", latencyStr)
+		fmt.Printf("  响应模型: %s\n", result.Model)
+		fmt.Printf("  回复摘要: %s\n", result.ResponsePreview)
+		return nil
+	},
+}
+
 func init() {
 	endpointCmd.AddCommand(endpointProvidersCmd)
 	endpointCmd.AddCommand(endpointListCmd)
@@ -504,6 +577,7 @@ func init() {
 	endpointCmd.AddCommand(endpointAddCmd)
 	endpointCmd.AddCommand(endpointSetCmd)
 	endpointCmd.AddCommand(endpointRmCmd)
+	endpointCmd.AddCommand(endpointTestCmd)
 
 	endpointAddCmd.Flags().String("provider", "", "LLM 服务商（deepseek / openai / anthropic）")
 	endpointAddCmd.Flags().String("url", "", "API 基础 URL")

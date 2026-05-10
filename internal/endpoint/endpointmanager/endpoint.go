@@ -6,10 +6,15 @@ package endpointmanager
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // EndpointConfig 表示一个 LLM 端点的完整配置。
@@ -278,4 +283,215 @@ func fieldValue(cfg *EndpointConfig, key string) string {
 	default:
 		return ""
 	}
+}
+
+// chatCompletionRequest 是发送给 LLM API 的 chat/completions 请求体。
+type chatCompletionRequest struct {
+	Model       string              `json:"model"`
+	Messages    []chatMessage       `json:"messages"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+}
+
+// chatMessage 表示 chat/completions 请求中的一条消息。
+type chatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// chatCompletionResponse 是 LLM API 返回的 chat/completions 响应体。
+type chatCompletionResponse struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Index   int `json:"index"`
+		Message struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+// TestResult 表示端点连通性测试的结果。
+type TestResult struct {
+	// Latency 是 HTTP 请求的往返延迟。
+	Latency time.Duration
+	// Model 是 LLM API 返回的模型名称。
+	Model string
+	// ResponsePreview 是响应内容的简短摘要（前 120 个字符）。
+	ResponsePreview string
+}
+
+// TestEndpoint 测试指定端点配置目录中的 LLM 端点连通性。
+//
+// 读取 endpoint.env 获取 URL 和 KEY，通过 Go net/http 向 {URL}/chat/completions
+// 发送 POST 请求（含 Bearer 认证头）。请求超时时间设为 30 秒（NFR-4）。
+//
+// 请求成功时返回 TestResult，包含延迟和回复摘要。
+// 请求失败（连接超时、DNS 解析失败、认证错误、端点不可达）时返回清晰的错误信息。
+//
+// 本函数仅依赖 Go 标准库的 net/http，无需外部 curl 依赖。
+func TestEndpoint(endpointDir string) (*TestResult, error) {
+	cfg, err := ReadEndpointConfig(endpointDir)
+	if err != nil {
+		return nil, fmt.Errorf("原因: 读取端点配置失败\n"+
+			"上下文: 正在测试端点连通性，端点配置目录: %s\n"+
+			"建议: 请确认端点已存在，使用 endpoint list 查看所有可用端点\n"+
+			"错误详情: %s", endpointDir, err.Error())
+	}
+
+	if cfg.URL == "" {
+		return nil, fmt.Errorf("原因: 端点 URL 为空\n"+
+			"上下文: 端点配置文件 %s/endpoint.env 中的 URL 字段为空\n"+
+			"建议: 请使用 endpoint set 命令设置有效的 API URL", endpointDir)
+	}
+
+	if cfg.Key == "" {
+		return nil, fmt.Errorf("原因: 端点 API key 为空\n"+
+			"上下文: 端点配置文件 %s/endpoint.env 中的 KEY 字段为空\n"+
+			"建议: 请使用 endpoint set 命令设置有效的 API key", endpointDir)
+	}
+
+	// 构建请求 URL
+	apiURL := strings.TrimRight(cfg.URL, "/") + "/chat/completions"
+
+	// 选择要使用的模型
+	model := cfg.Model
+	if model == "" {
+		model = cfg.ModelOpus
+	}
+	if model == "" {
+		model = cfg.ModelSonnet
+	}
+	if model == "" {
+		model = cfg.ModelHaiku
+	}
+	if model == "" {
+		model = cfg.ModelSubagent
+	}
+	if model == "" {
+		model = "default" // 没有指定模型时使用占位符，让 API 决定默认值
+	}
+
+	// 构建请求体
+	reqBody := chatCompletionRequest{
+		Model: model,
+		Messages: []chatMessage{
+			{Role: "user", Content: "Hello"},
+		},
+		MaxTokens: 5,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("原因: 序列化请求体失败\n"+
+			"上下文: 正在构建发送到 %s 的 chat/completions 请求\n"+
+			"建议: 这是一个内部错误，请报告给开发者\n"+
+			"错误详情: %s", apiURL, err.Error())
+	}
+
+	// 创建 HTTP 客户端，超时 30 秒（NFR-4）
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// 创建 POST 请求
+	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("原因: 创建 HTTP 请求失败\n"+
+			"上下文: 正在创建到 %s 的 POST 请求\n"+
+			"建议: 请检查端点 URL 格式是否正确\n"+
+			"错误详情: %s", apiURL, err.Error())
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.Key)
+
+	// 执行请求并计时
+	start := time.Now()
+	resp, err := client.Do(req)
+	latency := time.Since(start)
+
+	if err != nil {
+		// 判断错误类型以提供更精确的建议
+		if isTimeoutError(err) {
+			return nil, fmt.Errorf("原因: 请求超时（30 秒）\n"+
+				"上下文: 在 %d 秒内无法连接到 %s\n"+
+				"建议: 请检查网络连通性，确认 URL 可达，或增加超时时间",
+				30, apiURL)
+		}
+		return nil, fmt.Errorf("原因: 连接失败\n"+
+			"上下文: 无法连接到 %s\n"+
+			"建议: 请检查 URL 是否正确，网络是否通畅，以及端点服务是否在运行\n"+
+			"错误详情: %s", apiURL, err.Error())
+	}
+	defer resp.Body.Close()
+
+	// 读取响应体
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("原因: 读取响应体失败\n"+
+			"上下文: 从 %s 收到 HTTP %d 响应后读取响应体时出错\n"+
+			"建议: 请检查网络连接是否稳定\n"+
+			"错误详情: %s", apiURL, resp.StatusCode, err.Error())
+	}
+
+	// 检查 HTTP 状态码
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("原因: 认证失败（HTTP %d）\n"+
+			"上下文: 向 %s 发送请求后收到 HTTP %d 状态码\n"+
+			"建议: 请检查 API key 是否正确，使用 endpoint set 命令更新 key",
+			resp.StatusCode, apiURL, resp.StatusCode)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		// 尝试解析错误响应体以获取更多上下文
+		bodyPreview := string(respBody)
+		if len(bodyPreview) > 200 {
+			bodyPreview = bodyPreview[:200] + "..."
+		}
+		return nil, fmt.Errorf("原因: 端点返回 HTTP %d\n"+
+			"上下文: 向 %s 发送请求后收到非预期状态码\n"+
+			"建议: 请检查 URL 和请求参数是否正确\n"+
+			"响应详情: %s", resp.StatusCode, apiURL, bodyPreview)
+	}
+
+	// 解析 JSON 响应
+	var chatResp chatCompletionResponse
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		return nil, fmt.Errorf("原因: 解析响应 JSON 失败\n"+
+			"上下文: 从 %s 收到 HTTP 200 响应后解析 JSON 时出错\n"+
+			"建议: 端点返回的响应格式不符合 chat/completions 规范\n"+
+			"错误详情: %s", apiURL, err.Error())
+	}
+
+	// 提取模型名
+	resultModel := chatResp.Model
+	if resultModel == "" {
+		resultModel = model
+	}
+
+	// 提取响应预览（前 120 字符）
+	preview := ""
+	if len(chatResp.Choices) > 0 {
+		preview = chatResp.Choices[0].Message.Content
+	}
+	if len(preview) > 120 {
+		preview = preview[:120] + "..."
+	}
+
+	return &TestResult{
+		Latency:         latency,
+		Model:           resultModel,
+		ResponsePreview: preview,
+	}, nil
+}
+
+// isTimeoutError 判断错误是否为超时错误。
+func isTimeoutError(err error) bool {
+	if netErr, ok := err.(interface{ Timeout() bool }); ok {
+		return netErr.Timeout()
+	}
+	return strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "deadline exceeded")
 }
