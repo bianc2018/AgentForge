@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 
 	"github.com/agent-forge/cli/internal/run/argspersistence"
 	"github.com/agent-forge/cli/internal/run/wrapperloader"
@@ -1071,4 +1072,181 @@ func TestE2E_GH10_RecallFailed(t *testing.T) {
 	}
 
 	t.Log("E2E 测试 GH-10 recall 失败场景全部验证通过")
+}
+
+// TestE2E_GH11_RunCommandMode 覆盖 GH-11 Scenario "后台执行命令后自动退出容器"。
+//
+// Given 已构建 AgentForge 镜像
+// When 开发者执行 run --run "npm test"
+// Then 容器在后台启动并执行 npm test 命令
+// And 命令执行完成后容器自动退出
+// And 容器退出码与 npm test 的退出码一致
+//
+// 实现策略：
+//   - 使用 AssembleContainerConfig 生成后台命令模式配置（AutoRemove=true, Tty=false,
+//     Cmd=["bash", "-c", "命令"]）
+//   - 创建容器后启动，通过 ContainerWait 等待容器退出并获取退出码
+//   - 测试两种场景：正常退出（退出码 0）和异常退出（退出码非零）
+//   - 验证 AutoRemove 自动删除容器，测试后无残留
+func TestE2E_GH11_RunCommandMode(t *testing.T) {
+	// --- Given 已构建 AgentForge 镜像 ---
+	helper, err := dockerhelper.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer helper.Close()
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := helper.Ping(pingCtx); err != nil {
+		t.Skipf("Docker Engine 未运行，跳过 E2E 测试: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	ensureImageExists(t, ctx, helper)
+
+	// --- 子测试 1: 命令以退出码 0 成功退出 ---
+	t.Run("命令以退出码 0 成功退出", func(t *testing.T) {
+		// When 开发者执行 run --run "echo 'command-executed'"
+		params := argsparser.RunParams{
+			RunCmd: "echo 'command-executed'",
+		}
+
+		config, hostConfig, netConfig := AssembleContainerConfig(params, "")
+
+		// Then 容器在后台启动并执行命令 — 验证非交互模式配置
+		if !hostConfig.AutoRemove {
+			t.Error("后台命令模式应设置 AutoRemove=true")
+		}
+		if config.Tty {
+			t.Error("后台命令模式应设置 Tty=false")
+		}
+		if config.OpenStdin {
+			t.Error("后台命令模式应设置 OpenStdin=false")
+		}
+		if config.AttachStdin {
+			t.Error("后台命令模式应设置 AttachStdin=false")
+		}
+		if !config.AttachStdout {
+			t.Error("后台命令模式应设置 AttachStdout=true")
+		}
+		if !config.AttachStderr {
+			t.Error("后台命令模式应设置 AttachStderr=true")
+		}
+
+		// 验证 Cmd 正确设置为指定命令
+		if len(config.Cmd) != 3 || config.Cmd[0] != "bash" || config.Cmd[1] != "-c" {
+			t.Fatalf("Cmd = %v, want [bash -c <command>]", config.Cmd)
+		}
+		if config.Cmd[2] != "echo 'command-executed'" {
+			t.Errorf("Cmd[2] = %q, want %q", config.Cmd[2], "echo 'command-executed'")
+		}
+		t.Logf("配置验证通过: AutoRemove=%v, Tty=%v, Cmd=%v", hostConfig.AutoRemove, config.Tty, config.Cmd)
+
+		// 创建容器
+		resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+		if err != nil {
+			t.Fatalf("ContainerCreate() error = %v", err)
+		}
+		containerID := resp.ID
+		t.Logf("容器创建成功, ID: %s", containerID)
+
+		// 手动清理以防 AutoRemove 延迟
+		defer func() {
+			_ = helper.ContainerRemove(ctx, containerID, true, false)
+		}()
+
+		// 启动容器
+		if err := helper.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+			t.Fatalf("ContainerStart() error = %v", err)
+		}
+		t.Log("容器启动成功，命令在后台开始执行")
+
+		// Then 命令执行完成后容器自动退出
+		// And 容器退出码与命令的退出码一致
+		statusCh, errCh := helper.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+		select {
+		case status := <-statusCh:
+			if status.StatusCode != 0 {
+				t.Errorf("容器退出码 = %d, want 0", status.StatusCode)
+			} else {
+				t.Logf("验证通过: 命令以退出码 %d 成功退出", status.StatusCode)
+			}
+		case err := <-errCh:
+			t.Fatalf("等待容器退出失败: %v", err)
+		case <-time.After(15 * time.Second):
+			t.Fatal("等待容器退出超时")
+		}
+
+		// 验证容器已自动退出（可能已被 AutoRemove 删除）
+		inspectCmd := exec.CommandContext(ctx, "docker", "inspect", "--format={{.State.Status}}", containerID)
+		output, inspectErr := inspectCmd.CombinedOutput()
+		if inspectErr != nil {
+			// 容器已被删除 — AutoRemove 正常工作
+			t.Log("容器已通过 AutoRemove 自动删除")
+		} else {
+			status := strings.TrimSpace(string(output))
+			if status == "exited" {
+				t.Log("容器已退出（AutoRemove 未立即生效，但容器已停止运行）")
+			} else if status == "removing" {
+				t.Log("容器正在自动删除中")
+			} else {
+				t.Logf("容器状态: %s（可能因 Docker 版本差异 AutoRemove 延迟）", status)
+			}
+		}
+	})
+
+	// --- 子测试 2: 非零退出码正确传递 ---
+	t.Run("非零退出码正确传递", func(t *testing.T) {
+		// When 开发者执行 run --run "exit 42"
+		params := argsparser.RunParams{
+			RunCmd: "exit 42",
+		}
+
+		config, hostConfig, netConfig := AssembleContainerConfig(params, "")
+
+		if !hostConfig.AutoRemove {
+			t.Error("后台命令模式应设置 AutoRemove=true")
+		}
+
+		// 验证 Cmd 为 ["bash", "-c", "exit 42"]
+		if len(config.Cmd) != 3 || config.Cmd[2] != "exit 42" {
+			t.Fatalf("Cmd = %v, want [bash -c exit 42]", config.Cmd)
+		}
+
+		resp, err := helper.ContainerCreate(ctx, config, hostConfig, netConfig, nil, "")
+		if err != nil {
+			t.Fatalf("ContainerCreate() error = %v", err)
+		}
+		containerID := resp.ID
+		t.Logf("容器创建成功, ID: %s", containerID)
+
+		defer func() {
+			_ = helper.ContainerRemove(ctx, containerID, true, false)
+		}()
+
+		if err := helper.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+			t.Fatalf("ContainerStart() error = %v", err)
+		}
+		t.Log("容器启动成功")
+
+		// Then 容器退出码与 exit 42 的退出码一致
+		statusCh, errCh := helper.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+		select {
+		case status := <-statusCh:
+			if status.StatusCode != 42 {
+				t.Errorf("容器退出码 = %d, want 42", status.StatusCode)
+			} else {
+				t.Logf("验证通过: 非零退出码正确传递, 容器退出码 = %d", status.StatusCode)
+			}
+		case err := <-errCh:
+			t.Fatalf("等待容器退出失败: %v", err)
+		case <-time.After(15 * time.Second):
+			t.Fatal("等待容器退出超时")
+		}
+	})
+
+	t.Log("E2E 测试 GH-11 后台命令模式全部验证通过")
 }

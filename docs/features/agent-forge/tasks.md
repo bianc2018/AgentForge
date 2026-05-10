@@ -366,7 +366,7 @@
 
 ### T-35: 覆盖 Scenario "后台执行命令后自动退出容器" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`When 开发者执行 run --run "npm test"`、`Then 容器在后台启动并执行 npm test 命令`、`And 命令执行完成后容器自动退出`、`And 容器退出码与 npm test 的退出码一致`。
+- [x] 实现 Gherkin step definitions：`When 开发者执行 run --run "npm test"`、`Then 容器在后台启动并执行 npm test 命令`、`And 命令执行完成后容器自动退出`、`And 容器退出码与 npm test 的退出码一致`。
 
 **可追溯性:** REQ-18 · Scenario: "后台执行命令后自动退出容器"
 **依赖:** T-24
