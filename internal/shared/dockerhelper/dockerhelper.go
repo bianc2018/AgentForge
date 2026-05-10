@@ -13,8 +13,11 @@ import (
 	"os"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Client 封装 Docker SDK client，提供便捷的 Docker daemon 操作方法。
@@ -166,6 +169,72 @@ func (c *Client) ImageRemove(ctx context.Context, imageID string, force, prune b
 		return nil, ClassifyError(fmt.Errorf("Docker 镜像删除失败: %w", err))
 	}
 	return resp, nil
+}
+
+// ContainerCreate 创建 Docker 容器。
+//
+// config 是容器配置（Image、Cmd、Env、WorkingDir 等），
+// hostConfig 是主机配置（端口映射、挂载、特权模式等），
+// networkingConfig 是网络配置，
+// platform 是平台配置（可选，传 nil 使用默认值），
+// containerName 是容器名称（空字符串由 Docker 自动生成）。
+func (c *Client) ContainerCreate(
+	ctx context.Context,
+	config *container.Config,
+	hostConfig *container.HostConfig,
+	networkingConfig *network.NetworkingConfig,
+	platform *specs.Platform,
+	containerName string,
+) (container.ContainerCreateCreatedBody, error) {
+	resp, err := c.api.ContainerCreate(ctx, config, hostConfig, networkingConfig, platform, containerName)
+	if err != nil {
+		return resp, ClassifyError(fmt.Errorf("创建容器失败: %w", err))
+	}
+	return resp, nil
+}
+
+// ContainerStart 启动指定容器。
+func (c *Client) ContainerStart(ctx context.Context, containerID string, opts types.ContainerStartOptions) error {
+	err := c.api.ContainerStart(ctx, containerID, opts)
+	if err != nil {
+		return ClassifyError(fmt.Errorf("启动容器失败: %w", err))
+	}
+	return nil
+}
+
+// ContainerAttach 附加到指定容器的标准输入/输出/错误流。
+//
+// 返回 HijackedResponse，包含底层的连接和读取器。
+// 调用者必须在完成后关闭响应。
+func (c *Client) ContainerAttach(ctx context.Context, containerID string, opts types.ContainerAttachOptions) (types.HijackedResponse, error) {
+	resp, err := c.api.ContainerAttach(ctx, containerID, opts)
+	if err != nil {
+		return resp, ClassifyError(fmt.Errorf("附加到容器失败: %w", err))
+	}
+	return resp, nil
+}
+
+// ContainerWait 等待容器达到指定状态，返回退出状态码。
+//
+// condition 指定等待的条件（如 "next-exit" 等待容器退出）。
+func (c *Client) ContainerWait(ctx context.Context, containerID string, condition container.WaitCondition) (<-chan container.ContainerWaitOKBody, <-chan error) {
+	return c.api.ContainerWait(ctx, containerID, condition)
+}
+
+// ContainerRemove 删除指定容器。
+//
+// force 为 true 时强制删除正在运行的容器。
+// removeVolumes 为 true 时删除容器的匿名卷。
+func (c *Client) ContainerRemove(ctx context.Context, containerID string, force, removeVolumes bool) error {
+	opts := types.ContainerRemoveOptions{
+		Force:         force,
+		RemoveVolumes: removeVolumes,
+	}
+	err := c.api.ContainerRemove(ctx, containerID, opts)
+	if err != nil {
+		return ClassifyError(fmt.Errorf("删除容器失败: %w", err))
+	}
+	return nil
 }
 
 // Standard errors for Docker connection issues.

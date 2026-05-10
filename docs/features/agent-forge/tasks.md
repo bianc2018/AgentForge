@@ -236,7 +236,7 @@
 
 ### T-22: 实现 RunEngine 容器运行编排基础
 
-- [ ] 实现 RunEngine 编排容器运行：解析 `-a` agent 参数确定运行模式；组装 SDK `ContainerCreate` 配置结构（Image、Tty、OpenStdin、Cmd、PortBindings、Mounts、WorkingDir、Env）；调用 Docker Helper 的 `ContainerCreate` + `ContainerStart` + `ContainerAttach` API；在 agent 模式下将 Cmd 设置为对应 agent 的命令行可执行文件；支持 `-p` 端口映射、`-m` 只读目录挂载、`-e` 环境变量、`-w` 工作目录参数赋值。
+- [x] 实现 RunEngine 编排容器运行：解析 `-a` agent 参数确定运行模式；组装 SDK `ContainerCreate` 配置结构（Image、Tty、OpenStdin、Cmd、PortBindings、Mounts、WorkingDir、Env）；调用 Docker Helper 的 `ContainerCreate` + `ContainerStart` + `ContainerAttach` API；在 agent 模式下将 Cmd 设置为对应 agent 的命令行可执行文件；支持 `-p` 端口映射、`-m` 只读目录挂载、`-e` 环境变量、`-w` 工作目录参数赋值。
 
 **可追溯性:** REQ-9 · REQ-10 · REQ-11 · REQ-12 · REQ-13 · NFR-3 · NFR-8
 **依赖:** T-04 · T-20
