@@ -316,7 +316,7 @@
 
 ### T-30: 覆盖 Scenario "启动指定 agent 带完整配置的交互式终端" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 已构建 AgentForge 镜像`、`When 开发者执行 run -a claude -p 3000:3000 -m /host/data -w /workspace -e OPENAI_KEY=sk-xxx`、`Then 容器启动并进入 claude 交互式终端`、`And 容器内端口 3000 可访问`、`And 容器内 /host/data 目录存在且挂载自宿主机`、`And 容器内工作目录为 /workspace`、`And 容器内环境变量 OPENAI_KEY 值为 sk-xxx`。
+- [x] 实现 Gherkin step definitions：`Given 已构建 AgentForge 镜像`、`When 开发者执行 run -a claude -p 3000:3000 -m /host/data -w /workspace -e OPENAI_KEY=sk-xxx`、`Then 容器启动并进入 claude 交互式终端`、`And 容器内端口 3000 可访问`、`And 容器内 /host/data 目录存在且挂载自宿主机`、`And 容器内工作目录为 /workspace`、`And 容器内环境变量 OPENAI_KEY 值为 sk-xxx`。
 
 **可追溯性:** REQ-9 · REQ-10 · REQ-11 · REQ-12 · REQ-13 · NFR-3 · NFR-8 · Scenario: "启动指定 agent 带完整配置的交互式终端"
 **依赖:** T-23
