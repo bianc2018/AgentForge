@@ -296,7 +296,7 @@
 
 ### T-28: 实现 UT-17 RunEngine.AssembleContainerConfig 单元测试
 
-- [ ] 编写单元测试覆盖 `AssembleContainerConfig()` 的 9 个案例：agent 模式、bash 模式、Docker-in-Docker 模式、后台命令模式、端口映射、只读挂载、环境变量、工作目录、多端口/多挂载。无需 mock，纯数据结构组装。
+- [x] 编写单元测试覆盖 `AssembleContainerConfig()` 的 9 个案例：agent 模式、bash 模式、Docker-in-Docker 模式、后台命令模式、端口映射、只读挂载、环境变量、工作目录、多端口/多挂载。无需 mock，纯数据结构组装。
 
 **可追溯性:** REQ-9 · REQ-10 · REQ-11 · REQ-12 · REQ-13 · REQ-14 · REQ-15 · REQ-18 · NFR-7 · NFR-8
 **依赖:** T-22
