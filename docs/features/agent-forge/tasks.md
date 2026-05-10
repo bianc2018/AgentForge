@@ -73,7 +73,7 @@
 
 ### T-07: 实现 BuildEngine 基本构建编排
 
-- [ ] 实现 BuildEngine 的构建编排流程：接收 `-d` 依赖列表，调用 Deps Module 展开依赖，调用 Dockerfile Generator 生成 Dockerfile，调用 Docker Helper 的 `ImageBuild` API 执行构建；处理 `--no-cache` 参数；传递 `--max-retry` 和 `--gh-proxy` 参数；构建成功后通过 `ImageList` API 确认镜像可见；实现 build 命令的退出码规范（0=成功，1=构建失败，2=参数无效）。
+- [x] 实现 BuildEngine 的构建编排流程：接收 `-d` 依赖列表，调用 Deps Module 展开依赖，调用 Dockerfile Generator 生成 Dockerfile，调用 Docker Helper 的 `ImageBuild` API 执行构建；处理 `--no-cache` 参数；传递 `--max-retry` 和 `--gh-proxy` 参数；构建成功后通过 `ImageList` API 确认镜像可见；实现 build 命令的退出码规范（0=成功，1=构建失败，2=参数无效）。
 
 **可追溯性:** REQ-1 · REQ-2 · REQ-5 · REQ-6 · NFR-1 · NFR-2
 **依赖:** T-04 · T-05 · T-06

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/docker/docker/api/types"
@@ -124,6 +125,47 @@ func (c *Client) ImageExists(ctx context.Context, ref string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// ImageBuild 执行 Docker 镜像构建。
+//
+// buildContext 是构建上下文的 tar 流（包含 Dockerfile 和需要 COPY 的文件）。
+// options 包含构建参数（标签、缓存策略、构建参数等）。
+func (c *Client) ImageBuild(ctx context.Context, buildContext io.Reader, options types.ImageBuildOptions) (types.ImageBuildResponse, error) {
+	resp, err := c.api.ImageBuild(ctx, buildContext, options)
+	if err != nil {
+		err = ClassifyError(fmt.Errorf("Docker 镜像构建失败: %w", err))
+		return types.ImageBuildResponse{}, err
+	}
+	return resp, nil
+}
+
+// ImageTag 为指定镜像添加标签。
+//
+// source 是源镜像的 ID 或名称，target 是目标标签（如 "agent-forge:latest"）。
+func (c *Client) ImageTag(ctx context.Context, source, target string) error {
+	err := c.api.ImageTag(ctx, source, target)
+	if err != nil {
+		return ClassifyError(fmt.Errorf("Docker 镜像打标签失败: %w", err))
+	}
+	return nil
+}
+
+// ImageRemove 删除指定镜像。
+//
+// imageID 是镜像的 ID 或名称。
+// force 为 true 时强制删除（即使容器正在使用该镜像）。
+// prune 为 true 时删除未打标签的父镜像。
+func (c *Client) ImageRemove(ctx context.Context, imageID string, force, prune bool) ([]types.ImageDeleteResponseItem, error) {
+	opts := types.ImageRemoveOptions{
+		Force:         force,
+		PruneChildren: prune,
+	}
+	resp, err := c.api.ImageRemove(ctx, imageID, opts)
+	if err != nil {
+		return nil, ClassifyError(fmt.Errorf("Docker 镜像删除失败: %w", err))
+	}
+	return resp, nil
 }
 
 // Standard errors for Docker connection issues.
