@@ -13,7 +13,7 @@
 
 ### T-01: 搭建 Go 项目骨架和 cobra 命令树
 
-- [ ] 初始化 Go module，引入 cobra 和 Docker SDK 依赖；搭建命令树骨架，注册 build、run、endpoint、doctor、deps、export、import、update、version 和 help 一级子命令；配置编译期 `-ldflags` 嵌入 git hash；设定 run 为默认子命令。
+- [x] 初始化 Go module，引入 cobra 和 Docker SDK 依赖；搭建命令树骨架，注册 build、run、endpoint、doctor、deps、export、import、update、version 和 help 一级子命令；配置编译期 `-ldflags` 嵌入 git hash；设定 run 为默认子命令。
 
 **可追溯性:** REQ-37 · NFR-22
 **依赖:** —
@@ -23,7 +23,7 @@
 
 ### T-02: 实现 Config Resolver 配置路径解析
 
-- [ ] 实现 Config Resolver 组件：基于 `-c` 参数或默认值解析配置父目录路径；基于配置父目录导出 endpoint 存储路径（`<config-dir>/endpoints/`）、agent 配置路径等；支持相对路径到绝对路径的转换。
+- [x] 实现 Config Resolver 组件：基于 `-c` 参数或默认值解析配置父目录路径；基于配置父目录导出 endpoint 存储路径（`<config-dir>/endpoints/`）、agent 配置路径等；支持相对路径到绝对路径的转换。
 
 **可追溯性:** REQ-2 · REQ-11 · REQ-13
 **依赖:** T-01

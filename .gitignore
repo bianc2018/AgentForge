@@ -1,1 +1,10 @@
 graphify-out/
+
+# Go
+/bin/
+/tmp/
+/vendor/
+*.exe
+*.test
+*.out
+/agent-forge
