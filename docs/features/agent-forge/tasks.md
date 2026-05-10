@@ -63,7 +63,7 @@
 
 ### T-06: 实现 Dockerfile Generator 动态 Dockerfile 生成
 
-- [ ] 实现 Dockerfile Generator：根据 Deps Module 展开的安装指令列表动态拼接 Dockerfile；从 FROM 基础镜像指令开始，依次生成 RUN 指令（安装依赖）、ENV 指令（环境变量）、COPY 指令等；在生成的 Dockerfile 中自动插入国内镜像源配置（npm → npmmirror、pip → 阿里云 PyPI、yum → 阿里云 CentOS Vault）；支持 `--gh-proxy` 参数注入 GitHub 代理 URL；当镜像源不可达时自动回退到官方源并输出可感知提示。
+- [x] 实现 Dockerfile Generator：根据 Deps Module 展开的安装指令列表动态拼接 Dockerfile；从 FROM 基础镜像指令开始，依次生成 RUN 指令（安装依赖）、ENV 指令（环境变量）、COPY 指令等；在生成的 Dockerfile 中自动插入国内镜像源配置（npm → npmmirror、pip → 阿里云 PyPI、yum → 阿里云 CentOS Vault）；支持 `--gh-proxy` 参数注入 GitHub 代理 URL；当镜像源不可达时自动回退到官方源并输出可感知提示。
 
 **可追溯性:** REQ-1 · REQ-3 · REQ-5 · REQ-6 · NFR-20
 **依赖:** T-05
