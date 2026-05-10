@@ -216,7 +216,7 @@
 
 ### T-20: 实现 Args Persistence 组件
 
-- [ ] 实现 Args Persistence 组件：每次 `run` 命令执行成功后自动将所有运行参数持久化到 `<config-dir>/.last_args` 文件（key=value 格式，含 AGENT、PORTS、MOUNTS、WORKDIR、ENVS、MODE、RUN_CMD、DIND 等字段）；`-r/--recall` 时从 `.last_args` 读取并还原结构化参数集；文件不存在时返回特定错误（ErrFileNotFound），不启动容器。
+- [x] 实现 Args Persistence 组件：每次 `run` 命令执行成功后自动将所有运行参数持久化到 `<config-dir>/.last_args` 文件（key=value 格式，含 AGENT、PORTS、MOUNTS、WORKDIR、ENVS、MODE、RUN_CMD、DIND 等字段）；`-r/--recall` 时从 `.last_args` 读取并还原结构化参数集；文件不存在时返回特定错误（ErrFileNotFound），不启动容器。
 
 **可追溯性:** REQ-16 · REQ-17 · NFR-12
 **依赖:** T-02 · T-03
