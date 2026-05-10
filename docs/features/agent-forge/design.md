@@ -166,7 +166,7 @@ flowchart TD
 
 ### DiagnosticEngine
 - **层：** 诊断层
-- **职责：** 执行三层环境诊断：核心依赖（docker）→ 运行时（Docker daemon 运行状态、权限）→ 可选工具（jq、buildx）；检测到缺失核心依赖时调用 Package Manager Adapter 自动安装。Go 单二进制已消除 curl/git 作为运行时依赖。
+- **职责：** 执行三层环境诊断：核心依赖（docker）→ 运行时（Docker daemon 运行状态、权限）→ 可选工具（buildx）；检测到缺失核心依赖时调用 Package Manager Adapter 自动安装。Go 单二进制已消除 curl/git/jq 作为运行时依赖。
 - **依赖：** Package Manager Adapter
 - **覆盖的 REQ：** REQ-31、REQ-32；NFR-17、NFR-19
 
@@ -467,7 +467,7 @@ erDiagram
 - **诊断顺序：**
   1. 核心依赖：docker
   2. 运行时：Docker daemon 运行状态、权限
-  3. 可选工具：jq、buildx
+  3. 可选工具：buildx
 - **自动修复：** 核心依赖缺失时使用包管理器安装（NFR-19），安装后重新检测
 - **退出码：**
   | 退出码 | 条件 |
@@ -1128,7 +1128,7 @@ sequenceDiagram
 3. 如果缺失核心依赖，调用 Package Manager Adapter 自动安装（NFR-19）
 4. 安装后重新检测，循环直到全部通过或安装失败
 5. **第二层 — 运行时检测**：`docker info` 检查 Docker daemon 运行状态、当前用户权限
-6. **第三层 — 可选工具检测**：检查 jq、buildx 安装状态
+6. **第三层 — 可选工具检测**：检查 buildx 安装状态（jq 已由 Go `encoding/json` 替代）
 7. 输出每层诊断结果
 
 ```mermaid
@@ -1150,7 +1150,7 @@ sequenceDiagram
         DE->>DE: 重新检测
     end
     DE->>DE: 检测 Docker daemon 状态
-    DE->>DE: 检测可选工具（jq, buildx）
+    DE->>DE: 检测可选工具（buildx）
     DE-->>Dev: 三层诊断结果输出
 ```
 

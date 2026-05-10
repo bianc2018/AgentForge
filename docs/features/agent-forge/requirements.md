@@ -134,7 +134,7 @@
 
 ## 7. 环境诊断和依赖查询 (Diagnosis & Dependency Query)
 
-**REQ-31**: 当开发者执行 doctor 命令时，系统必须按顺序执行三层环境诊断：核心依赖（docker）、运行时（Docker daemon 状态、权限）和可选工具（jq、buildx），并输出每一层的诊断结果。Go 单二进制已消除对外部 HTTP 客户端（curl）和版本控制工具（git）的运行时依赖。
+**REQ-31**: 当开发者执行 doctor 命令时，系统必须按顺序执行三层环境诊断：核心依赖（docker）、运行时（Docker daemon 状态、权限）和可选工具（buildx），并输出每一层的诊断结果。Go 单二进制已消除对外部 HTTP 客户端（curl）、版本控制工具（git）和 JSON 解析器（jq）的运行时依赖，全部由标准库覆盖。
 
 > 来源：PRD 目标 13 / Story 13 验收标准 / BDD 场景 "环境诊断"
 
