@@ -27,8 +27,9 @@ type EndpointConfig struct {
 	ModelSubagent string `json:"model_subagent"` // Subagent 模型名（可选）
 }
 
-// endpointEnvFilename 是端点配置文件的固定文件名。
-const endpointEnvFilename = "endpoint.env"
+// EndpointEnvFilename 是端点配置文件的固定文件名。
+// 导出以供外部（如 cmd/ 包）引用该常量。
+const EndpointEnvFilename = "endpoint.env"
 
 // fieldKeys 是 endpoint.env 中所有字段的 key 列表（用于写入时的固定顺序）。
 var fieldKeys = []string{
@@ -154,7 +155,7 @@ func WriteEndpointConfig(endpointDir string, cfg *EndpointConfig) error {
 		return fmt.Errorf("创建端点配置目录失败 %s: %w", endpointDir, err)
 	}
 
-	filePath := filepath.Join(endpointDir, endpointEnvFilename)
+	filePath := filepath.Join(endpointDir, EndpointEnvFilename)
 
 	// 按固定顺序生成 key=value 内容
 	var b strings.Builder
@@ -175,7 +176,7 @@ func WriteEndpointConfig(endpointDir string, cfg *EndpointConfig) error {
 // 文件不存在时返回清晰的错误信息（包含路径），供上游遵循 NFR-16 格式。
 // 文件内容通过 ParseEndpointEnv 解析。
 func ReadEndpointConfig(endpointDir string) (*EndpointConfig, error) {
-	filePath := filepath.Join(endpointDir, endpointEnvFilename)
+	filePath := filepath.Join(endpointDir, EndpointEnvFilename)
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {

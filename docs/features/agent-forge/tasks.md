@@ -441,7 +441,7 @@
 
 ### T-41: 实现 EndpointManager 的 endpoint add 命令
 
-- [ ] 实现 `endpoint add <name>` 命令：接收全部 8 个可选参数（--provider、--url、--key、--model、--model-opus、--model-sonnet、--model-haiku、--model-subagent）；所有参数齐全时在 `<config-dir>/endpoints/<name>/` 目录创建 endpoint.env 文件，权限 0600；创建成功后 `endpoint list` 输出表中包含新端点；支持同名端点已存在时的错误处理。
+- [x] 实现 `endpoint add <name>` 命令：接收全部 8 个可选参数（--provider、--url、--key、--model、--model-opus、--model-sonnet、--model-haiku、--model-subagent）；所有参数齐全时在 `<config-dir>/endpoints/<name>/` 目录创建 endpoint.env 文件，权限 0600；创建成功后 `endpoint list` 输出表中包含新端点；支持同名端点已存在时的错误处理。
 
 **可追溯性:** REQ-22 · NFR-9
 **依赖:** T-39 · T-40
