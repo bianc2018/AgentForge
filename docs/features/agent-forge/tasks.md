@@ -286,7 +286,7 @@
 
 ### T-27: 实现 UT-7 WrapperLoader.Generate 单元测试
 
-- [ ] 编写单元测试覆盖 WrapperLoader 的 3 个案例：生成的脚本包含所有 4 个 agent 的函数定义、脚本语法可通过 `bash -n` 验证、函数名互不重叠。无需 mock，纯字符串生成。
+- [x] 编写单元测试覆盖 WrapperLoader 的 3 个案例：生成的脚本包含所有 4 个 agent 的函数定义、脚本语法可通过 `bash -n` 验证、函数名互不重叠。无需 mock，纯字符串生成。
 
 **可追溯性:** REQ-14 · Scenario: "不指定 agent 以 bash 模式启动容器"
 **依赖:** T-21
