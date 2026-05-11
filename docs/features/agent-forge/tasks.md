@@ -835,7 +835,7 @@
 
 ### T-79: 覆盖 Scenario "导出和导入镜像实现离线分发" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 已构建 AgentForge 镜像`、`When 开发者执行 export agent-forge.tar`、`Then 镜像被导出为 agent-forge.tar 文件`、`When 开发者在另一台机器上执行 import agent-forge.tar`、`Then docker images 中显示已加载的镜像`、`And 可使用 run -a claude 正常启动容器`。
+- [x] 实现 Gherkin step definitions：`Given 已构建 AgentForge 镜像`、`When 开发者执行 export agent-forge.tar`、`Then 镜像被导出为 agent-forge.tar 文件`、`When 开发者在另一台机器上执行 import agent-forge.tar`、`Then docker images 中显示已加载的镜像`、`And 可使用 run -a claude 正常启动容器`。
 
 **可追溯性:** REQ-34 · REQ-35 · Scenario: "导出和导入镜像实现离线分发"
 **依赖:** T-77
