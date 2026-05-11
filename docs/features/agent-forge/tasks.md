@@ -511,7 +511,7 @@
 
 ### T-48: 实现 UT-11 和 UT-12 ProviderAgentMatrix 单元测试
 
-- [ ] 编写单元测试覆盖 `GetProviders()` 的 2 个案例（正常返回、返回值不可变）和 `GetAgentsForProvider()` 的 4 个案例（deepseek、openai、anthropic、未知 provider）。无需 mock，纯领域逻辑。
+- [x] 编写单元测试覆盖 `GetProviders()` 的 2 个案例（正常返回、返回值不可变）和 `GetAgentsForProvider()` 的 4 个案例（deepseek、openai、anthropic、未知 provider）。无需 mock，纯领域逻辑。
 
 **可追溯性:** REQ-19 · REQ-28
 **依赖:** T-39
