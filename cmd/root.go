@@ -13,6 +13,8 @@ var (
 	Version = "dev"
 	// GitHash holds the short git commit hash, injected via -ldflags
 	GitHash = "unknown"
+	// BuildTime holds the ISO 8601 build timestamp, injected via -ldflags
+	BuildTime = "unknown"
 )
 
 // rootCmd represents the base command
@@ -65,5 +67,5 @@ func init() {
 
 // VersionInfo returns a formatted version string
 func VersionInfo() string {
-	return fmt.Sprintf("agent-forge %s (%s)", Version, GitHash)
+	return fmt.Sprintf("agent-forge %s (%s) built at %s", Version, GitHash, BuildTime)
 }

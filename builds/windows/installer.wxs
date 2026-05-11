@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="__PRODUCT_NAME__"
+    Language="1033"
+    Version="__PRODUCT_VERSION__"
+    Manufacturer="AgentForge"
+    UpgradeCode="f5a75dc7-ef43-4cf9-87d3-21fbcfc3ccd1"
+  >
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallScope="perMachine"
+      Platform="__PLATFORM__"
+    />
+
+    <MajorUpgrade
+      DowngradeErrorMessage="已安装更新的版本，请先卸载后再安装此版本。"
+    />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- 自定义安装目录：默认 C:\Program Files\AgentForge\ -->
+    <!-- 命令行覆盖：msiexec /i agent-forge.msi INSTALLDIR="D:\Tools\AgentForge" -->
+    <!-- 升级时自动读取旧版本的安装目录 -->
+    <Property Id="INSTALLDIR" Secure="yes">
+      <RegistrySearch
+        Id="FindInstallDir"
+        Root="HKLM"
+        Key="Software\AgentForge"
+        Name="InstallDir"
+        Type="directory"
+      />
+    </Property>
+
+    <!-- 如果注册表中无旧安装记录，回退到默认路径 -->
+    <SetProperty
+      Id="INSTALLDIR"
+      Value="C:\Program Files\AgentForge\"
+      After="AppSearch"
+    >NOT INSTALLDIR</SetProperty>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="AgentForge">
+          <Component Id="MainExecutable" Guid="*" Win64="__WIN64__">
+            <File
+              Id="AgentForgeExe"
+              Name="agent-forge.exe"
+              Source="__BINARY__"
+              KeyPath="yes"
+            />
+            <!-- 将安装目录注册到系统 PATH -->
+            <Environment
+              Id="PathEnv"
+              Name="PATH"
+              Value="[INSTALLDIR]"
+              Permanent="no"
+              Part="last"
+              Action="set"
+              System="yes"
+            />
+          </Component>
+
+          <!-- 记录安装目录到注册表，供后续升级读取 -->
+          <Component Id="RegistryEntries" Guid="*" Win64="__WIN64__">
+            <RegistryKey Root="HKLM" Key="Software\AgentForge">
+              <RegistryValue
+                Name="InstallDir"
+                Value="[INSTALLDIR]"
+                Type="string"
+                KeyPath="yes"
+              />
+              <RegistryValue
+                Name="Version"
+                Value="__PRODUCT_VERSION__"
+                Type="string"
+              />
+            </RegistryKey>
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Complete" Title="AgentForge" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="RegistryEntries" />
+    </Feature>
+  </Product>
+</Wix>

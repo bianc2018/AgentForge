@@ -1,5 +1,8 @@
 graphify-out/
 
+# GoReleaser
+dist/
+
 # Go
 /bin/
 /tmp/

@@ -1,0 +1,95 @@
+version: 2
+
+# ─── 构建矩阵 ───────────────────────────────────────────────
+builds:
+  - id: agent-forge
+    main: .
+    binary: agent-forge
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/agent-forge/cli/cmd.Version={{.Version}}
+      - -X github.com/agent-forge/cli/cmd.GitHash={{.ShortCommit}}
+      - -X github.com/agent-forge/cli/cmd.BuildTime={{.Date}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# ─── 归档包 ─────────────────────────────────────────────────
+archives:
+  - id: default
+    ids:
+      - agent-forge
+    format_overrides:
+      - goos: linux
+        formats: [tar.gz]
+      - goos: windows
+        formats: [zip]
+    files:
+      - src: README.md
+      - src: "LICENSE*"
+        dst: LICENSE
+
+# ─── Checksum ───────────────────────────────────────────────
+checksum:
+  name_template: checksums.txt
+
+# ─── Linux 包管理器（deb / rpm）─────────────────────────────
+nfpms:
+  - id: agent-forge
+    package_name: agent-forge
+    ids:
+      - agent-forge
+    formats:
+      - deb
+      - rpm
+    vendor: AgentForge
+    homepage: https://github.com/agent-forge/cli
+    maintainer: AgentForge Team <agent-forge@github.com>
+    description: |
+      AgentForge -- AI Coding Agent 容器生命周期管理工具。
+      基于 Docker 提供构建、运行、端点管理、环境诊断等完整的容器生命周期管理。
+    license: Apache-2.0
+    section: devel
+    priority: optional
+    replaces:
+      - agent-forge
+    conflicts:
+      - agent-forge
+
+# ─── 发布配置 ───────────────────────────────────────────────
+release:
+  draft: true
+  prerelease: auto
+  header: |
+    ## AgentForge {{ .Version }}
+
+    ### 安装方式
+
+    **Linux (deb):**
+    ```
+    sudo dpkg -i agent-forge_*_linux_*.deb
+    ```
+
+    **Linux (rpm):**
+    ```
+    sudo rpm -U agent-forge_*_linux_*.rpm
+    ```
+
+    **Windows (MSI):**
+    ```
+    msiexec /i agent-forge_*_windows_*.msi
+    ```
+
+    **便携包:** 下载对应平台的 tar.gz (Linux) 或 zip (Windows)，解压即用。
+  footer: |
+    ### 校验和
+    下载后请使用 `checksums.txt` 验证文件完整性：
+    ```
+    sha256sum -c checksums.txt
+    ```
