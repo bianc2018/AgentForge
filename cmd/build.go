@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/agent-forge/cli/internal/build/buildengine"
+	"github.com/agent-forge/cli/internal/shared/dockerhelper"
 )
 
 // buildCmd represents the build command
@@ -15,7 +18,40 @@ var buildCmd = &cobra.Command{
 支持通过 -d 参数指定依赖列表，通过 -b 参数指定基础镜像，
 通过 --no-cache 跳过缓存，通过 -R/--rebuild 安全重建等。`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("build 命令已调用（占位实现）")
+		// --- 获取参数 ---
+		deps, _ := cmd.Flags().GetString("deps")
+		baseImage, _ := cmd.Flags().GetString("base-image")
+		config, _ := cmd.Flags().GetString("config")
+		noCache, _ := cmd.Flags().GetBool("no-cache")
+		rebuild, _ := cmd.Flags().GetBool("rebuild")
+		maxRetry, _ := cmd.Flags().GetInt("max-retry")
+		ghProxy, _ := cmd.Flags().GetString("gh-proxy")
+
+		params := buildengine.BuildParams{
+			Deps:      deps,
+			BaseImage: baseImage,
+			Config:    config,
+			NoCache:   noCache,
+			Rebuild:   rebuild,
+			MaxRetry:  maxRetry,
+			GHProxy:   ghProxy,
+		}
+
+		// --- 创建 Docker 客户端 ---
+		helper, err := dockerhelper.NewClient()
+		if err != nil {
+			return fmt.Errorf("Docker 客户端初始化失败: %w", err)
+		}
+		defer helper.Close()
+
+		// --- 执行构建 ---
+		output, err := buildengine.New(helper).Build(cmd.Context(), params)
+		if output != "" {
+			fmt.Print(output)
+		}
+		if err != nil {
+			return err
+		}
 		return nil
 	},
 }

@@ -167,6 +167,12 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 			break
 		}
 
+		// 检查构建输出中是否包含可重试的网络错误（curl SSL、连接重置等）
+		if attempt < params.MaxRetry && isRetryableError(fmt.Errorf(outputStr)) {
+			outputBuf.WriteString(fmt.Sprintf("\n[检测到网络错误，将进行重试 %d/%d]\n", attempt+1, params.MaxRetry))
+			continue
+		}
+
 		lastErr = &BuildError{
 			Message:  "镜像构建失败",
 			Output:   outputBuf.String(),

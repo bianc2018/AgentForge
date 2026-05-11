@@ -12,6 +12,18 @@ import (
 	"github.com/agent-forge/cli/internal/build/depsmodule"
 )
 
+// ImageFamily 表示基础镜像的发行版家族。
+type ImageFamily int
+
+const (
+	// FamilyUnknown 表示无法识别的镜像家族，回退到 RHEL/CentOS 行为。
+	FamilyUnknown ImageFamily = iota
+	// FamilyRHEL 表示 Red Hat 系（CentOS、RHEL、Fedora），使用 yum/dnf。
+	FamilyRHEL
+	// FamilyDebian 表示 Debian 系（Ubuntu、Debian），使用 apt。
+	FamilyDebian
+)
+
 // Options 是 Dockerfile 生成所需的参数集。
 type Options struct {
 	// BaseImage 是基础镜像名称。
@@ -34,6 +46,22 @@ const (
 	// DefaultBaseImage 是未指定 -b 参数时的默认基础镜像。
 	DefaultBaseImage = "docker.1ms.run/centos:7"
 )
+
+// detectImageFamily 根据基础镜像名称推断发行版家族。
+func detectImageFamily(baseImage string) ImageFamily {
+	lower := strings.ToLower(baseImage)
+	for _, kw := range []string{"ubuntu", "debian"} {
+		if strings.Contains(lower, kw) {
+			return FamilyDebian
+		}
+	}
+	for _, kw := range []string{"centos", "rhel", "fedora", "rocky", "almalinux", "oraclelinux"} {
+		if strings.Contains(lower, kw) {
+			return FamilyRHEL
+		}
+	}
+	return FamilyUnknown
+}
 
 // runtimeNeeds 描述一组依赖需要的运行时环境。
 type runtimeNeeds struct {
@@ -69,9 +97,9 @@ func analyzeRuntimeNeeds(deps []string) (*runtimeNeeds, error) {
 //
 // 生成的 Dockerfile 结构：
 //  1. FROM 指令（基础镜像）
-//  2. YUM 镜像源配置（阿里云 CentOS Vault，在第一个 yum 操作之前）
+//  2. 镜像源配置（根据基础镜像家族选择 yum 或 apt）
 //  3. 系统基础工具安装（curl、git 等）
-//  4. 条件编译工具安装（make、gcc/g++，仅 npm 依赖需要时）
+//  4. 条件编译工具安装（仅 npm 依赖需要时）
 //  5. 条件语言运行时安装（Node.js/npm、Python3/pip，按需安装）
 //  6. 条件 npm/pip 镜像源配置
 //  7. GitHub 代理 URL 注入（可选）
@@ -85,6 +113,7 @@ func Generate(opts Options) (string, error) {
 	if baseImage == "" {
 		baseImage = DefaultBaseImage
 	}
+	family := detectImageFamily(baseImage)
 
 	// 预分析依赖的运行时需求
 	var needs *runtimeNeeds
@@ -103,58 +132,85 @@ func Generate(opts Options) (string, error) {
 	// 1. FROM
 	fmt.Fprintf(&sb, "FROM %s\n", baseImage)
 
-	// 2. YUM 镜像源配置（在第一个 yum 操作之前，REQ-3）
-	// CentOS 7 已于 2024 年 6 月 EOL，mirrorlist 已失效
-	sb.WriteString("\n# 配置 YUM 镜像源（CentOS 7 EOL，切换阿里云 Vault）\n")
-	sb.WriteString("RUN sed -i 's|^mirrorlist=|#mirrorlist=|' /etc/yum.repos.d/CentOS-*.repo && \\\n")
-	sb.WriteString("    sed -i 's|^#baseurl=http://mirror.centos.org/centos/$releasever|baseurl=https://mirrors.aliyun.com/centos-vault/7.9.2009|' /etc/yum.repos.d/CentOS-*.repo\n")
-
-	// 3. 系统基础工具（始终安装：下载、解压、版本管理所需）
-	sb.WriteString("\n# 安装基础工具\n")
-	sb.WriteString("RUN yum install -y epel-release && \\\n")
-	sb.WriteString("    yum install -y curl git wget tar gzip unzip && \\\n")
-	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
-
-	// 4. 条件编译工具安装（仅当有 npm 依赖需要原生模块编译时）
-	if needs.needsGCC {
-		sb.WriteString("\n# 安装编译工具（用于 npm 原生模块编译）\n")
-		sb.WriteString("RUN yum install -y make gcc gcc-c++ && \\\n")
-		sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+	// 2. 镜像源配置 + 基础工具安装
+	switch family {
+	case FamilyDebian:
+		writeDebianSetup(&sb)
+	default:
+		writeRHELSetup(&sb)
 	}
 
-	// 5. 条件语言运行时安装
-	// CentOS 7 glibc 2.17 无法支持 Node.js >= 18，使用 nodesource 16.x
-	if needs.needsNpm {
-		sb.WriteString("\n# 安装 Node.js (npm)\n")
-		sb.WriteString("RUN curl -fsSL https://rpm.nodesource.com/setup_16.x -o /tmp/nodesetup.sh && \\\n")
-		sb.WriteString("    bash /tmp/nodesetup.sh && \\\n")
-		sb.WriteString("    yum install -y nodejs && \\\n")
-		sb.WriteString("    rm -f /tmp/nodesetup.sh && \\\n")
-		sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+	// 3. 条件编译工具安装
+	if needs.needsGCC {
+		switch family {
+		case FamilyDebian:
+			sb.WriteString("\n# 安装编译工具（用于 npm 原生模块编译）\n")
+			sb.WriteString("RUN apt-get update && \\\n")
+			sb.WriteString("    apt-get install -y build-essential && \\\n")
+			sb.WriteString("    rm -rf /var/lib/apt/lists/*\n")
+		default:
+			sb.WriteString("\n# 安装编译工具（用于 npm 原生模块编译）\n")
+			sb.WriteString("RUN yum install -y make gcc gcc-c++ && \\\n")
+			sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+		}
+	}
 
-		// npm 国内镜像源配置
-		sb.WriteString("\n# 配置 npm 国内镜像源\n")
-		sb.WriteString("ENV npm_config_registry=https://registry.npmmirror.com\n")
+	// 4. 条件语言运行时安装
+	if needs.needsNpm {
+		switch family {
+		case FamilyDebian:
+			// Ubuntu/Debian 使用 NodeSource deb 仓库，支持最新版
+			sb.WriteString("\n# 安装 Node.js (npm)\n")
+			sb.WriteString("RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesetup.sh && \\\n")
+			sb.WriteString("    bash /tmp/nodesetup.sh && \\\n")
+			sb.WriteString("    apt-get install -y nodejs && \\\n")
+			sb.WriteString("    rm -f /tmp/nodesetup.sh && \\\n")
+			sb.WriteString("    rm -rf /var/lib/apt/lists/*\n")
+
+			sb.WriteString("\n# 配置 npm 国内镜像源\n")
+			sb.WriteString("ENV npm_config_registry=https://registry.npmmirror.com\n")
+		default:
+			// CentOS 7 glibc 2.17 无法支持 Node.js >= 18，使用 nodesource 16.x
+			sb.WriteString("\n# 安装 Node.js (npm)\n")
+			sb.WriteString("RUN curl -fsSL https://rpm.nodesource.com/setup_16.x -o /tmp/nodesetup.sh && \\\n")
+			sb.WriteString("    bash /tmp/nodesetup.sh && \\\n")
+			sb.WriteString("    yum install -y nodejs && \\\n")
+			sb.WriteString("    rm -f /tmp/nodesetup.sh && \\\n")
+			sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+
+			sb.WriteString("\n# 配置 npm 国内镜像源\n")
+			sb.WriteString("ENV npm_config_registry=https://registry.npmmirror.com\n")
+		}
 	}
 	if needs.needsPip {
-		sb.WriteString("\n# 安装 Python3 (pip3)\n")
-		sb.WriteString("RUN yum install -y python3 python3-pip && \\\n")
-		sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+		switch family {
+		case FamilyDebian:
+			sb.WriteString("\n# 安装 Python3 (pip3)\n")
+			sb.WriteString("RUN apt-get update && \\\n")
+			sb.WriteString("    apt-get install -y python3 python3-pip && \\\n")
+			sb.WriteString("    rm -rf /var/lib/apt/lists/*\n")
 
-		// pip 国内镜像源配置
-		// CentOS 7 的 pip 9.0.3 不支持 `pip config set`，使用环境变量
-		sb.WriteString("\n# 配置 pip 国内镜像源\n")
-		sb.WriteString("ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/\n")
-		sb.WriteString("ENV PIP_TRUSTED_HOST=mirrors.aliyun.com\n")
+			sb.WriteString("\n# 配置 pip 国内镜像源\n")
+			sb.WriteString("RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/\n")
+		default:
+			sb.WriteString("\n# 安装 Python3 (pip3)\n")
+			sb.WriteString("RUN yum install -y python3 python3-pip && \\\n")
+			sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+
+			// CentOS 7 的 pip 9.0.3 不支持 `pip config set`，使用环境变量
+			sb.WriteString("\n# 配置 pip 国内镜像源\n")
+			sb.WriteString("ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/\n")
+			sb.WriteString("ENV PIP_TRUSTED_HOST=mirrors.aliyun.com\n")
+		}
 	}
 
-	// 6. GitHub 代理配置
+	// 5. GitHub 代理配置
 	if opts.GHProxy != "" {
 		sb.WriteString("\n# GitHub 代理配置\n")
 		fmt.Fprintf(&sb, "ENV GH_PROXY_URL=%s\n", opts.GHProxy)
 	}
 
-	// 7. 安装依赖
+	// 6. 安装依赖
 	if len(opts.Deps) > 0 {
 		sb.WriteString("\n# 安装依赖\n")
 		for _, dep := range opts.Deps {
@@ -163,10 +219,8 @@ func Generate(opts Options) (string, error) {
 				return "", fmt.Errorf("解析依赖 %q 安装方式失败: %w", dep, err)
 			}
 
-			// 添加注释标记依赖名称
 			fmt.Fprintf(&sb, "\n# %s (%s)\n", method.Name, method.Type)
 
-			// 应用 gh-proxy 到 GitHub 下载
 			commands := applyGHProxy(method.Commands, opts.GHProxy)
 
 			for _, cmd := range commands {
@@ -175,7 +229,7 @@ func Generate(opts Options) (string, error) {
 		}
 	}
 
-	// 8. 清理安装缓存
+	// 7. 清理安装缓存
 	sb.WriteString("\n# 清理安装缓存\n")
 	sb.WriteString("RUN ")
 	if needs.needsNpm {
@@ -184,14 +238,49 @@ func Generate(opts Options) (string, error) {
 	if needs.needsPip {
 		sb.WriteString("pip3 cache purge 2>/dev/null || true && \\\n    ")
 	}
-	sb.WriteString("yum clean all 2>/dev/null || true && \\\n")
-	sb.WriteString("    rm -rf /tmp/*\n")
+	switch family {
+	case FamilyDebian:
+		sb.WriteString("apt-get clean 2>/dev/null || true && \\\n")
+		sb.WriteString("    rm -rf /var/lib/apt/lists/* /tmp/*\n")
+	default:
+		sb.WriteString("yum clean all 2>/dev/null || true && \\\n")
+		sb.WriteString("    rm -rf /tmp/*\n")
+	}
 
-	// 9. 默认 entrypoint
+	// 8. 默认 entrypoint
 	sb.WriteString("\n# 默认命令\n")
 	sb.WriteString("CMD [\"/bin/bash\"]\n")
 
 	return sb.String(), nil
+}
+
+// writeDebianSetup 生成 Debian/Ubuntu 系的镜像源配置和基础工具安装。
+func writeDebianSetup(sb *strings.Builder) {
+	// 配置 apt 阿里云镜像源（加速 apt-get update）
+	sb.WriteString("\n# 配置 APT 镜像源（阿里云）\n")
+	sb.WriteString("RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list && \\\n")
+	sb.WriteString("    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list && \\\n")
+	sb.WriteString("    sed -i 's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g' /etc/apt/sources.list || true\n")
+
+	// 基础工具安装
+	sb.WriteString("\n# 安装基础工具\n")
+	sb.WriteString("RUN apt-get update && \\\n")
+	sb.WriteString("    apt-get install -y curl git wget tar gzip unzip ca-certificates && \\\n")
+	sb.WriteString("    rm -rf /var/lib/apt/lists/*\n")
+}
+
+// writeRHELSetup 生成 RHEL/CentOS 系的镜像源配置和基础工具安装。
+func writeRHELSetup(sb *strings.Builder) {
+	// CentOS 7 已于 2024 年 6 月 EOL，mirrorlist 已失效
+	sb.WriteString("\n# 配置 YUM 镜像源（CentOS 7 EOL，切换阿里云 Vault）\n")
+	sb.WriteString("RUN sed -i 's|^mirrorlist=|#mirrorlist=|' /etc/yum.repos.d/CentOS-*.repo && \\\n")
+	sb.WriteString("    sed -i 's|^#baseurl=http://mirror.centos.org/centos/$releasever|baseurl=https://mirrors.aliyun.com/centos-vault/7.9.2009|' /etc/yum.repos.d/CentOS-*.repo || true\n")
+
+	// 基础工具
+	sb.WriteString("\n# 安装基础工具\n")
+	sb.WriteString("RUN yum install -y epel-release && \\\n")
+	sb.WriteString("    yum install -y curl git wget tar gzip unzip && \\\n")
+	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
 }
 
 // applyGHProxy 在命令中替换 GitHub 相关 URL 为代理 URL。
@@ -204,7 +293,6 @@ func applyGHProxy(commands []string, ghProxy string) []string {
 
 	result := make([]string, len(commands))
 	for i, cmd := range commands {
-		// 替换 github.com 链接（用于 opencode、deepseek-tui 等从 GitHub Releases 下载的依赖）
 		cmd = strings.ReplaceAll(cmd, "https://github.com/", ghProxy+"https://github.com/")
 		result[i] = cmd
 	}
