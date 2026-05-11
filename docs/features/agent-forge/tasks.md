@@ -571,7 +571,7 @@
 
 ### T-54: 实现 IT-2 ApplySyncer 配置同步集成测试
 
-- [ ] 编写 ApplySyncer 集成测试（IT-2）：在真实临时目录上验证 claude/opencode/kimi/deepseek-tui 四种 agent 配置文件的写入格式正确；验证 `--agent` 过滤功能（仅写入指定 agent）；验证文件权限 0600；验证不指定端点名称时同步全部端点。
+- [x] 编写 ApplySyncer 集成测试（IT-2）：在真实临时目录上验证 claude/opencode/kimi/deepseek-tui 四种 agent 配置文件的写入格式正确；验证 `--agent` 过滤功能（仅写入指定 agent）；验证文件权限 0600；验证不指定端点名称时同步全部端点。
 
 **可追溯性:** REQ-28 · REQ-29 · NFR-9
 **依赖:** T-46
