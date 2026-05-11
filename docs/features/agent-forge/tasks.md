@@ -815,7 +815,7 @@
 
 ### T-77: 实现 DistributionEngine 镜像导出和导入
 
-- [ ] 实现 DistributionEngine：`export` 通过 Docker SDK 的 `ImageSave` API 将镜像导出为 tar 文件流并写入磁盘（默认文件名 `agent-forge.tar`）；`import` 通过 `ImageLoad` API 从 tar 文件读取并加载镜像；export 镜像不存在时返回退出码 1；import 文件不存在时返回退出码 1；import 后通过 `ImageList` 确认镜像可见。
+- [x] 实现 DistributionEngine：`export` 通过 Docker SDK 的 `ImageSave` API 将镜像导出为 tar 文件流并写入磁盘（默认文件名 `agent-forge.tar`）；`import` 通过 `ImageLoad` API 从 tar 文件读取并加载镜像；export 镜像不存在时返回退出码 1；import 文件不存在时返回退出码 1；import 后通过 `ImageList` 确认镜像可见。
 
 **可追溯性:** REQ-34 · REQ-35
 **依赖:** T-04

@@ -171,6 +171,31 @@ func (c *Client) ImageRemove(ctx context.Context, imageID string, force, prune b
 	return resp, nil
 }
 
+// ImageSave 将指定镜像保存为 tar 流。
+//
+// imageIDs 是要导出的镜像 ID 或名称列表。
+// 返回的 io.ReadCloser 包含 tar 格式的镜像数据。
+func (c *Client) ImageSave(ctx context.Context, imageIDs []string) (io.ReadCloser, error) {
+	reader, err := c.api.ImageSave(ctx, imageIDs)
+	if err != nil {
+		return nil, ClassifyError(fmt.Errorf("Docker 镜像导出失败: %w", err))
+	}
+	return reader, nil
+}
+
+// ImageLoad 从 tar 流加载镜像。
+//
+// input 是包含 tar 格式镜像数据的读取器。
+// quiet 为 true 时减少输出。
+// 返回 ImageLoadResponse 包含加载结果。
+func (c *Client) ImageLoad(ctx context.Context, input io.Reader, quiet bool) (types.ImageLoadResponse, error) {
+	resp, err := c.api.ImageLoad(ctx, input, quiet)
+	if err != nil {
+		return types.ImageLoadResponse{}, ClassifyError(fmt.Errorf("Docker 镜像导入失败: %w", err))
+	}
+	return resp, nil
+}
+
 // ContainerCreate 创建 Docker 容器。
 //
 // config 是容器配置（Image、Cmd、Env、WorkingDir 等），
