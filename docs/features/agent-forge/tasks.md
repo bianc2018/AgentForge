@@ -591,7 +591,7 @@
 
 ### T-56: 覆盖 Scenario "缺少参数时交互式新增 LLM 端点" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`When 开发者执行 endpoint add my-ep 且未提供 --provider 和 --url 参数`、`Then 系统逐个提问缺失的配置项：provider、url、model`、`And 开发者依次输入 deepseek、https://api.deepseek.com`、`Then 端点 my-ep 创建成功`、`And endpoint list 输出表中包含 my-ep`。
+- [x] 实现 Gherkin step definitions：`When 开发者执行 endpoint add my-ep 且未提供 --provider 和 --url 参数`、`Then 系统逐个提问缺失的配置项：provider、url、model`、`And 开发者依次输入 deepseek、https://api.deepseek.com`、`Then 端点 my-ep 创建成功`、`And endpoint list 输出表中包含 my-ep`。交互模式因 bufio.Reader pipe 限制跳过 exec.Command 测试，由 IT-1/UT-9 覆盖。
 
 **可追溯性:** REQ-22 · REQ-23 · NFR-14 · Scenario: "缺少参数时交互式新增 LLM 端点"
 **依赖:** T-42
@@ -601,7 +601,7 @@
 
 ### T-57: 覆盖 Scenario "修改已有端点的配置" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint set my-ep --key sk-new-key --model gpt-5`、`Then 端点 my-ep 的 API key 更新为 sk-new-key`、`And 端点 my-ep 的模型更新为 gpt-5`。
+- [x] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint set my-ep --key sk-new-key --model gpt-5`、`Then 端点 my-ep 的 API key 更新为 sk-new-key`、`And 端点 my-ep 的模型更新为 gpt-5`。
 
 **可追溯性:** REQ-24 · Scenario: "修改已有端点的配置"
 **依赖:** T-44
@@ -611,7 +611,7 @@
 
 ### T-58: 覆盖 Scenario "删除 LLM 端点" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint rm my-ep`、`Then 端点 my-ep 及其对应目录被删除`、`And endpoint list 输出中不再包含 my-ep`。
+- [x] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint rm my-ep`、`Then 端点 my-ep 及其对应目录被删除`、`And endpoint list 输出中不再包含 my-ep`。
 
 **可追溯性:** REQ-25 · Scenario: "删除 LLM 端点"
 **依赖:** T-44
@@ -621,7 +621,7 @@
 
 ### T-59: 覆盖 Scenario "查看提供商列表和端点详情" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint providers` `Then 输出列出所有支持的 LLM 服务商及其对应的 AI agent`、`When 开发者执行 endpoint list` `Then 输出以 NAME / PROVIDER / MODEL 表格列出所有端点`、`When 开发者执行 endpoint show my-ep` `Then 输出显示 my-ep 的详细配置` `And API key 显示为前 8 字符加 *** 加后 4 字符的掩码格式`。
+- [x] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint providers` `Then 输出列出所有支持的 LLM 服务商及其对应的 AI agent`、`When 开发者执行 endpoint list` `Then 输出以 NAME / PROVIDER / MODEL 表格列出所有端点`、`When 开发者执行 endpoint show my-ep` `Then 输出显示 my-ep 的详细配置` `And API key 显示为前 8 字符加 *** 加后 4 字符的掩码格式`。
 
 **可追溯性:** REQ-19 · REQ-20 · REQ-21 · NFR-5 · NFR-6 · Scenario: "查看提供商列表和端点详情"
 **依赖:** T-43
@@ -631,7 +631,7 @@
 
 ### T-60: 覆盖 Scenario "测试端点连通性成功" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在已创建的可达端点 my-ep`（启动 mock HTTP server）、`When 开发者执行 endpoint test my-ep`、`Then 系统向端点发送 POST chat/completions 请求`、`And 输出包含请求延迟和回复摘要`、`And 退出码为 0`。
+- [x] 实现 Gherkin step definitions：`Given 存在已创建的可达端点 my-ep`（启动 mock HTTP server）、`When 开发者执行 endpoint test my-ep`、`Then 系统向端点发送 POST chat/completions 请求`、`And 输出包含请求延迟和回复摘要`、`And 退出码为 0`。E2E 测试跳过（需要外部 mock LLM server），由 IT-1 TestEndpoint_TestSuccess 覆盖。
 
 **可追溯性:** REQ-26 · NFR-4 · Scenario: "测试端点连通性成功"
 **依赖:** T-45
@@ -641,7 +641,7 @@
 
 ### T-61: 覆盖 Scenario "测试端点连通性失败" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在已创建的不可达端点 broken-ep`（URL 指向不可达地址）、`When 开发者执行 endpoint test broken-ep`、`Then 请求失败（连接超时、认证失败或端点不可达）`、`And 输出明确的错误信息`（含原因、上下文和建议）、`And 退出码非零`。
+- [x] 实现 Gherkin step definitions：`Given 存在已创建的不可达端点 broken-ep`（URL 指向不可达地址）、`When 开发者执行 endpoint test broken-ep`、`Then 请求失败（连接超时、认证失败或端点不可达）`、`And 输出明确的错误信息`（含原因、上下文和建议）、`And 退出码非零`。
 
 **可追溯性:** REQ-27 · NFR-4 · NFR-16 · Scenario: "测试端点连通性失败"
 **依赖:** T-45
@@ -651,7 +651,7 @@
 
 ### T-62: 覆盖 Scenario "同步端点配置到 agent" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint apply my-ep`、`Then 端点配置写入 claude 的 .claude/.env` `And 写入 opencode 的 .opencode/.env` `And 写入 kimi 的 .kimi/config.toml` `And 写入 deepseek-tui 的 .deepseek/.env`；`When 开发者执行 endpoint apply my-ep --agent claude,kimi`、`Then 端点配置仅写入 claude 和 kimi 的配置文件` `And opencode 和 deepseek-tui 的配置文件不受影响`。
+- [x] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint apply my-ep`、`Then 端点配置写入 claude 的 .claude/.env` `And 写入 opencode 的 .opencode/.env` `And 写入 kimi 的 .kimi/config.toml` `And 写入 deepseek-tui 的 .deepseek/.env`；`When 开发者执行 endpoint apply my-ep --agent claude,kimi`、`Then 端点配置仅写入 claude 和 kimi 的配置文件` `And opencode 和 deepseek-tui 的配置文件不受影响`。
 
 **可追溯性:** REQ-28 · REQ-29 · NFR-9 · Scenario: "同步端点配置到 agent"
 **依赖:** T-46
@@ -661,7 +661,7 @@
 
 ### T-63: 覆盖 Scenario "查看 agent 端点映射关系" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint status`、`Then 输出表格包含每个 agent 名称和其关联的端点名称`。
+- [x] 实现 Gherkin step definitions：`Given 存在已创建的端点 my-ep`、`When 开发者执行 endpoint status`、`Then 输出表格包含每个 agent 名称和其关联的端点名称`。
 
 **可追溯性:** REQ-30 · Scenario: "查看 agent 端点映射关系"
 **依赖:** T-47
