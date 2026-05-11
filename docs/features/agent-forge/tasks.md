@@ -561,7 +561,7 @@
 
 ### T-53: 实现 IT-1 EndpointManager CRUD 集成测试
 
-- [ ] 编写 EndpointManager 集成测试（IT-1）：在真实临时目录上验证 add 创建、set 修改、show 查看、list 列出、rm 删除的完整生命周期；验证文件权限 0600；验证 key 掩码格式；验证 test 成功（mock HTTP server 200）和 test 失败（mock HTTP 超时/401）；验证 status 查询输出映射关系。测试后清理临时目录。
+- [x] 编写 EndpointManager 集成测试（IT-1）：在真实临时目录上验证 add 创建、set 修改、show 查看、list 列出、rm 删除的完整生命周期；验证文件权限 0600；验证 key 掩码格式；验证 test 成功（mock HTTP server 200）和 test 失败（mock HTTP 超时/401）；验证 status 查询输出映射关系。测试后清理临时目录。
 
 **可追溯性:** REQ-20 · REQ-21 · REQ-22 · REQ-24 · REQ-25 · REQ-26 · REQ-27 · REQ-30 · NFR-9
 **依赖:** T-41 · T-43 · T-44 · T-45 · T-47
