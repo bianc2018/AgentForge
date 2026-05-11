@@ -716,7 +716,7 @@
 
 ### T-68: 实现 Package Manager Adapter 包管理器自动识别
 
-- [ ] 实现 Package Manager Adapter：自动识别当前操作系统的包管理器（优先顺序：apt-get、dnf、yum、brew）；每种包管理器对应正确的安装命令和参数（如 `apt-get install -y docker.io`、`dnf install -y docker`、`yum install -y docker`、`brew install --cask docker`）；无可用包管理器时返回明确错误。
+- [x] 实现 Package Manager Adapter：自动识别当前操作系统的包管理器（优先顺序：apt-get、dnf、yum、brew）；每种包管理器对应正确的安装命令和参数（如 `apt-get install -y docker.io`、`dnf install -y docker`、`yum install -y docker`、`brew install --cask docker`）；无可用包管理器时返回明确错误。
 
 **可追溯性:** REQ-32 · NFR-19
 **依赖:** T-01
@@ -726,7 +726,7 @@
 
 ### T-69: 实现 DiagnosticEngine 三层环境诊断
 
-- [ ] 实现 DiagnosticEngine 的三层诊断流程：第一层（核心依赖）通过 Docker SDK 检测 `/var/run/docker.sock` 可用性；缺失时调用 Package Manager Adapter 自动安装，安装后重新检测；第二层（运行时）通过 SDK `Ping` API 检查 Docker daemon 连通性，`Info` API 检查用户权限；第三层（可选工具）检查 buildx 安装状态；每层输出清晰的状态和诊断信息；符合 NFR-16 错误格式。
+- [x] 实现 DiagnosticEngine 的三层诊断流程：第一层（核心依赖）通过 Docker SDK 检测 `/var/run/docker.sock` 可用性；缺失时调用 Package Manager Adapter 自动安装，安装后重新检测；第二层（运行时）通过 SDK `Ping` API 检查 Docker daemon 连通性，`Info` API 检查用户权限；第三层（可选工具）检查 buildx 安装状态；每层输出清晰的状态和诊断信息；符合 NFR-16 错误格式。
 
 **可追溯性:** REQ-31 · REQ-32 · NFR-17 · NFR-18 · NFR-19 · NFR-16
 **依赖:** T-04 · T-68
