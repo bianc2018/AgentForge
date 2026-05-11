@@ -110,9 +110,15 @@ func (pm *Manager) Install(pkg string) (string, error) {
 	return string(output), nil
 }
 
+// execCommand 是可 mock 的 exec.Command 封装。
+// 默认实现使用 os/exec.Command。
+var execCommand = func(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	return cmd.Run()
+}
+
 // isCommandAvailable 检查系统中是否存在指定命令。
 func isCommandAvailable(checkCmd string) bool {
 	// checkCmd 格式如："apt-get --version"
-	cmd := exec.Command("sh", "-c", checkCmd)
-	return cmd.Run() == nil
+	return execCommand("sh", "-c", checkCmd) == nil
 }

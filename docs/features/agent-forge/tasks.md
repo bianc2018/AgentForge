@@ -736,7 +736,7 @@
 
 ### T-70: 实现 UT-16 PackageManagerAdapter.Detect 单元测试
 
-- [ ] 编写单元测试覆盖 `Detect()` 的 5 个案例：apt-get 可用返回 apt-get、dnf 可用返回 dnf、yum 可用返回 yum、brew 可用返回 brew、无可用包管理器返回错误。使用 mock os.Exec 判断各包管理器是否存在。
+- [x] 编写单元测试覆盖 `Detect()` 的 5 个案例：apt-get 可用返回 apt-get、dnf 可用返回 dnf、yum 可用返回 yum、brew 可用返回 brew、无可用包管理器返回错误。使用 mock os.Exec 判断各包管理器是否存在。
 
 **可追溯性:** REQ-32 · NFR-19
 **依赖:** T-68
@@ -746,7 +746,7 @@
 
 ### T-71: 实现 UT-18 DiagnosticEngine.ClassifyIssue 单元测试
 
-- [ ] 编写单元测试覆盖 `ClassifyIssue()` 的 5 个案例：socket 不可达标记为核心依赖缺失、Docker Ping 失败标记为运行时异常、权限不足标记为运行时权限问题、BuildKit 不可用标记为可选工具提示、所有检查通过返回全部通过。使用 mock Docker SDK client。
+- [x] 编写单元测试覆盖 `ClassifyIssue()` 的 5 个案例：socket 不可达标记为核心依赖缺失、Docker Ping 失败标记为运行时异常、权限不足标记为运行时权限问题、BuildKit 不可用标记为可选工具提示、所有检查通过返回全部通过。使用 mock Docker SDK client。
 
 **可追溯性:** REQ-31 · NFR-17 · NFR-18
 **依赖:** T-69

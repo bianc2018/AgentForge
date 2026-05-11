@@ -16,8 +16,14 @@ import (
 	"strings"
 
 	"github.com/agent-forge/cli/internal/doctor/packagemanager"
-	"github.com/agent-forge/cli/internal/shared/dockerhelper"
 )
+
+// DockerHelper 是 DiagnosticEngine 需要的 Docker 操作接口。
+// 通过接口而非具体类型，便于测试时 mock。
+type DockerHelper interface {
+	Ping(ctx context.Context) error
+	Info(ctx context.Context) (interface{}, error)
+}
 
 // IssueType 表示诊断问题的类型。
 type IssueType int
@@ -61,14 +67,19 @@ type Diagnosis struct {
 
 // Engine 是诊断引擎，执行三层环境诊断。
 type Engine struct {
-	helper    *dockerhelper.Client
-	execFunc  func(name string, args ...string) error // mockable exec
-	detectPM  func() (*packagemanager.Manager, error) // mockable pm detect
-	installPM func(pm *packagemanager.Manager, pkg string) (string, error) // mockable pm install
+	helper     DockerHelper
+	socketPath string                                   // Docker socket 路径，默认 /var/run/docker.sock
+	execFunc   func(name string, args ...string) error  // mockable exec
+	detectPM   func() (*packagemanager.Manager, error)  // mockable pm detect
+	installPM  func(pm *packagemanager.Manager, pkg string) (string, error) // mockable pm install
+	socketStat func(path string) error                  // mockable os.Stat
 }
 
 // Option 是 Engine 的配置选项。
 type Option func(*Engine)
+
+// defaultSocketPath 是默认的 Docker socket 路径。
+const defaultSocketPath = "/var/run/docker.sock"
 
 // WithExecFunc 设置可 mock 的 exec 函数。
 func WithExecFunc(fn func(name string, args ...string) error) Option {
@@ -91,10 +102,18 @@ func WithInstallPM(fn func(pm *packagemanager.Manager, pkg string) (string, erro
 	}
 }
 
+// WithSocketPath 设置 Docker socket 路径（用于测试）。
+func WithSocketPath(path string) Option {
+	return func(e *Engine) {
+		e.socketPath = path
+	}
+}
+
 // New 创建一个新的诊断引擎。
-func New(helper *dockerhelper.Client, opts ...Option) *Engine {
+func New(helper DockerHelper, opts ...Option) *Engine {
 	e := &Engine{
-		helper: helper,
+		helper:     helper,
+		socketPath: defaultSocketPath,
 		execFunc: func(name string, args ...string) error {
 			cmd := exec.Command(name, args...)
 			return cmd.Run()
@@ -104,6 +123,10 @@ func New(helper *dockerhelper.Client, opts ...Option) *Engine {
 		},
 		installPM: func(pm *packagemanager.Manager, pkg string) (string, error) {
 			return pm.Install(pkg)
+		},
+		socketStat: func(path string) error {
+			_, err := os.Stat(path)
+			return err
 		},
 	}
 	for _, opt := range opts {
@@ -145,13 +168,12 @@ func (e *Engine) Diagnose(ctx context.Context) (*Diagnosis, error) {
 
 // checkCoreDependency 检查第一层核心依赖。
 func (e *Engine) checkCoreDependency(diag *Diagnosis) {
-	socketPath := "/var/run/docker.sock"
-	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+	if err := e.socketStat(e.socketPath); err != nil {
 		diag.CorePassed = false
 		diag.Issues = append(diag.Issues, Issue{
 			Type:       IssueCoreMissing,
 			Layer:      "核心依赖",
-			Message:    fmt.Sprintf("Docker socket 不存在: %s", socketPath),
+			Message:    fmt.Sprintf("Docker socket 不存在: %s", e.socketPath),
 			Suggestion: "请安装 Docker Engine，或检查 Docker 是否已启动",
 		})
 		return
