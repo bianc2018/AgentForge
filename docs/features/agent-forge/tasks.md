@@ -920,7 +920,7 @@
 
 ### T-87: 覆盖 Scenario "工具自更新和版本信息查看" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given Git remote 或 UPDATE_URL 中有新版本`（启动 mock HTTP server）、`When 开发者执行 update`、`Then 系统从远端下载更新` `And 嵌入新的 git hash` `And 系统版本号更新`；`When 开发者执行 version`、`Then 输出格式化的版本号和当前 git hash`；`When 开发者执行任意命令的 --help`、`Then 输出格式一致的帮助信息，包含命令用法和参数说明`。
+- [x] 实现 Gherkin step definitions：`Given Git remote 或 UPDATE_URL 中有新版本`（启动 mock HTTP server）、`When 开发者执行 update`、`Then 系统从远端下载更新` `And 嵌入新的 git hash` `And 系统版本号更新`；`When 开发者执行 version`、`Then 输出格式化的版本号和当前 git hash`；`When 开发者执行任意命令的 --help`、`Then 输出格式一致的帮助信息，包含命令用法和参数说明`。
 
 **可追溯性:** REQ-36 · REQ-37 · NFR-13 · NFR-15 · NFR-21 · NFR-22 · Scenario: "工具自更新和版本信息查看"
 **依赖:** T-80 · T-82

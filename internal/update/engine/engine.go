@@ -199,7 +199,7 @@ func (e *SelfUpdateEngine) download(url, destPath string) error {
 	return nil
 }
 
-// copyFile 复制文件从 src 到 dst。
+// copyFile 复制文件从 src 到 dst，保留文件权限。
 func (e *SelfUpdateEngine) copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {
@@ -207,7 +207,13 @@ func (e *SelfUpdateEngine) copyFile(src, dst string) error {
 	}
 	defer sourceFile.Close()
 
-	destFile, err := os.Create(dst)
+	// 获取源文件权限
+	srcInfo, err := sourceFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	destFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
 	if err != nil {
 		return err
 	}
