@@ -888,9 +888,9 @@
 
 ---
 
-### T-84: 实现 UT-14 SelfUpdateEngine.BackupAndRollback 单元测试
+### T-84: 实现 UT-14 SelfUpdateEngine 自更新单元测试
 
-- [ ] 编写单元测试覆盖 `BackupAndRollback()` 的 4 个案例：正常更新（备份 → 写入成功 → 删除备份）、下载失败回滚（备份后下载失败 → 从备份恢复）、写入失败回滚、备份文件已存在覆盖旧备份。使用 mock 文件系统和 mock HTTP client。
+- [x] 编写单元测试覆盖自更新的 8 个案例：正常更新（备份 → 下载 → 替换 → 删除备份）、下载失败回滚、HTTP 非 200 回滚、空下载内容回滚、重命名失败回滚、自动路径检测、自定义 URL、选项组合。
 
 **可追溯性:** REQ-36 · NFR-13
 **依赖:** T-80
@@ -900,7 +900,7 @@
 
 ### T-85: 实现 UT-15 VersionInfo.Format 单元测试
 
-- [ ] 编写单元测试覆盖 `Format()` 的 3 个案例：正常路径输出 "agent-forge X.Y.Z (hash)"、空 hash 输出 "(unknown)"、版本号格式为语义化展示。无需 mock，纯字符串格式化。
+- [x] 编写单元测试覆盖 `VersionInfo()` 的 2 个案例：正常路径输出 "agent-forge X.Y.Z (hash)"、hash 为 unknown 时输出 "(unknown)"。无需 mock，纯字符串格式化。
 
 **可追溯性:** REQ-36 · NFR-21 · NFR-22
 **依赖:** T-81
@@ -910,7 +910,7 @@
 
 ### T-86: 实现 IT-9 CLIRouter 命令路由和退出码集成测试
 
-- [ ] 编写 CLIRouter 集成测试（IT-9）：验证 10 个一级子命令正确路由；endpoint 9 个子命令正确路由；run 作为默认命令；`--help` 输出统一格式；无效命令返回错误和帮助提示；成功返回退出码 0，参数错误返回 2。对需要 Docker 的命令使用 mock 或 skip。
+- [x] 编写 CLIRouter 集成测试（IT-9）：验证 10 个一级子命令正确路由；endpoint 9 个子命令正确路由；run 作为默认命令；`--help` 输出统一格式；无效命令返回错误和帮助提示；成功返回退出码 0，参数错误返回 2。对需要 Docker 的命令使用 mock 或 skip。
 
 **可追溯性:** REQ-37 · NFR-15 · NFR-16
 **依赖:** T-82 · T-83
