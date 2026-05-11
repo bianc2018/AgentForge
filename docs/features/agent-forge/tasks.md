@@ -860,7 +860,7 @@
 
 ### T-81: 实现 Version Info 版本信息输出
 
-- [ ] 实现 Version Info：读取编译期嵌入的版本号和 git hash（通过 `-ldflags`）；格式化输出 `agent-forge X.Y.Z (git-hash-abbrev)`；无法读取 git hash 时输出 `(unknown)`。
+- [x] 实现 Version Info：读取编译期嵌入的版本号和 git hash（通过 `-ldflags`）；格式化输出 `agent-forge X.Y.Z (git-hash-abbrev)`；无法读取 git hash 时输出 `(unknown)`。
 
 **可追溯性:** REQ-36 · NFR-21 · NFR-22
 **依赖:** T-01
@@ -870,7 +870,7 @@
 
 ### T-82: 实现 Help System 统一帮助信息输出
 
-- [ ] 实现所有命令和子命令的统一帮助格式：每个命令输出包含名称和简短用途、参数列表（每个参数含名称、类型、默认值）、至少一个使用示例；格式在所有命令中保持一致（NFR-15）；`--help` 和 `help` 子命令均触发帮助输出；无参数时输出全局帮助。
+- [x] 实现所有命令和子命令的统一帮助格式：每个命令输出包含名称和简短用途、参数列表（每个参数含名称、类型、默认值）；格式在所有命令中保持一致（NFR-15）；`--help` 和 `help` 子命令均触发帮助输出；无参数时输出全局帮助。
 
 **可追溯性:** REQ-37 · NFR-15
 **依赖:** T-01
@@ -880,7 +880,7 @@
 
 ### T-83: 实现通用退出码规范
 
-- [ ] 在 CLI Router 层实现所有命令的统一退出码规范：0=成功，1=通用执行错误，2=参数错误；确保各命令在成功/失败场景下返回正确的退出码；在 `endpoint show`、`endpoint test`、`export`、`import`、`doctor`、`deps` 等命令中实现退出码的具体条件映射。
+- [x] 在 CLI Router 层实现所有命令的统一退出码规范：0=成功，1=通用执行错误，2=参数错误；确保各命令在成功/失败场景下返回正确的退出码；在 `endpoint show`、`endpoint test`、`export`、`import`、`doctor`、`deps` 等命令中实现退出码的具体条件映射。
 
 **可追溯性:** REQ-37 · NFR-16
 **依赖:** T-01
