@@ -691,7 +691,7 @@
 
 ### T-66: 实现 ST-1 API key 脱敏安全测试
 
-- [ ] 编写安全测试 ST-1：验证 `endpoint show <name>` 中 KEY 为掩码格式（前 8 + `***` + 后 4）；`endpoint list` 不输出 KEY 字段；`endpoint add` 回显确认不显示完整 key；错误信息中包含的 key 片段做掩码处理；version/info 输出不泄露任何配置信息。
+- [x] 编写安全测试 ST-1：验证 `endpoint show <name>` 中 KEY 为掩码格式（前 8 + `***` + 后 4）；`endpoint list` 不输出 KEY 字段；`endpoint add` 回显确认不显示完整 key；错误信息中包含的 key 片段做掩码处理；version/info 输出不泄露任何配置信息。
 
 **可追溯性:** NFR-6
 **依赖:** T-43
@@ -701,7 +701,7 @@
 
 ### T-67: 实现 ST-4 配置文件权限安全测试
 
-- [ ] 编写安全测试 ST-4：验证 `endpoint add` 后 endpoint.env 权限为 0600；`endpoint set` 后修改文件权限仍为 0600；`endpoint apply` 后各 agent 配置文件权限为 0600（claude/opencode/kimi/dstui）；endpoints/ 目录权限不为 0777。
+- [x] 编写安全测试 ST-4：验证 `endpoint add` 后 endpoint.env 权限为 0600；`endpoint set` 后修改文件权限仍为 0600；`endpoint apply` 后各 agent 配置文件权限为 0600（claude/opencode/kimi/dstui）；endpoints/ 目录权限不为 0777。
 
 **可追溯性:** NFR-9
 **依赖:** T-41 · T-46
