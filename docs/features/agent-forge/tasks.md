@@ -581,7 +581,7 @@
 
 ### T-55: 覆盖 Scenario "带全部参数新增 LLM 端点" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`When 开发者执行 endpoint add my-ep --provider openai --url https://api.openai.com --key sk-test-key-value --model gpt-4 --model-opus gpt-4-32k ...`（全部 8 个参数）、`Then 端点 my-ep 创建成功`、`And endpoint list 输出表中包含 my-ep`、`And endpoint show my-ep 显示 API key 为 sk-test***alue 掩码格式`。
+- [x] 实现 Gherkin step definitions：`When 开发者执行 endpoint add my-ep --provider openai --url https://api.openai.com --key sk-test-key-value --model gpt-4 --model-opus gpt-4-32k ...`（全部 8 个参数）、`Then 端点 my-ep 创建成功`、`And endpoint list 输出表中包含 my-ep`、`And endpoint show my-ep 显示 API key 为 sk-test***alue 掩码格式`。
 
 **可追溯性:** REQ-22 · NFR-6 · NFR-9 · Scenario: "带全部参数新增 LLM 端点"
 **依赖:** T-41 · T-43
