@@ -800,7 +800,7 @@
 
 ### T-76: 覆盖 Scenario "查询容器内依赖安装状态" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given 已构建 AgentForge 镜像`、`When 开发者在宿主机执行 deps`、`Then 系统自动生成检测脚本` `And 通过 docker run --rm 在临时容器中执行检测` `And 输出按 agent / skill / tool / runtime 分类显示安装状态和版本号` `And 检测完成后临时容器自动销毁`。
+- [x] 实现 Gherkin step definitions：`Given 已构建 AgentForge 镜像`、`When 开发者在宿主机执行 deps`、`Then 系统自动生成检测脚本` `And 通过 docker run --rm 在临时容器中执行检测` `And 输出按 agent / runtime / tool 分类显示安装状态和版本号` `And 检测完成后临时容器自动销毁`。
 
 **可追溯性:** REQ-33 · Scenario: "查询容器内依赖安装状态"
 **依赖:** T-74
