@@ -531,7 +531,7 @@
 
 ### T-50: 实现 UT-10 ApplySyncer.FormatForAgent 单元测试
 
-- [ ] 编写单元测试覆盖 `FormatForAgent()` 的 6 个案例：claude 输出 key=value 格式、opencode 输出 `.env` 格式（字段不同）、kimi 输出 TOML 格式、deepseek-tui 输出 `.env` 格式（字段不同）、未知 agent 返回错误、配置含特殊字符时正确转义。无需 mock，纯模板化字符串生成。
+- [x] 编写单元测试覆盖 `FormatForAgent()` 的 6 个案例：claude 输出 key=value 格式、opencode 输出 `.env` 格式（字段不同）、kimi 输出 TOML 格式、deepseek-tui 输出 `.env` 格式（字段不同）、未知 agent 返回错误、配置含特殊字符时正确转义。无需 mock，纯模板化字符串生成。
 
 **可追溯性:** REQ-28 · REQ-29
 **依赖:** T-46
