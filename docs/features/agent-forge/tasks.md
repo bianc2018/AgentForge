@@ -671,7 +671,7 @@
 
 ### T-64: 实现 PT-4 endpoint test 超时性能测试
 
-- [ ] 编写 PT-4：创建不可达端点（指向 localhost:1），执行 `time endpoint test` 测量超时断开时间，阈值 ≤ 30 秒。3 次执行取最大值。
+- [x] 编写 PT-4：创建不可达端点（指向 localhost:1），执行 `time endpoint test` 测量超时断开时间，阈值 ≤ 30 秒。3 次执行取最大值。
 
 **可追溯性:** NFR-4
 **依赖:** T-45
@@ -681,7 +681,7 @@
 
 ### T-65: 实现 PT-5 非构建类命令响应时间性能测试
 
-- [ ] 编写 PT-5：分别测量 `version`、`--help`、`endpoint list`、`endpoint providers` 的响应时间，阈值 ≤ 1 秒。每个命令 5 次执行取平均值。
+- [x] 编写 PT-5：分别测量 `version`、`--help`、`endpoint list`、`endpoint providers` 的响应时间，阈值 ≤ 1 秒。每个命令 5 次执行取平均值。
 
 **可追溯性:** NFR-5
 **依赖:** T-43 · T-47
