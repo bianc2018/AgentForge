@@ -780,7 +780,7 @@
 
 ### T-74: 实现 Deps Inspector 容器内依赖查询
 
-- [ ] 实现 Deps Inspector：在宿主机自动生成检测脚本（包含按 agent/skill/tool/runtime 分类的 `which` 和 `--version` 检测命令）；通过 Docker Helper 以 `ContainerCreate`(AutoRemove=true, Cmd=["bash", "-c", "<检测脚本>"]) + `ContainerStart` 在临时容器中执行脚本；收集输出，按 agent/skill/tool/runtime 分类回显各组件安装状态和版本号；检测完成后临时容器自动销毁。
+- [x] 实现 Deps Inspector：在宿主机自动生成检测脚本（包含按 agent/runtime/tool 分类的 `which` 和 `--version` 检测命令）；通过 `docker run --rm` 在临时容器中执行脚本；收集输出，按 agent/runtime/tool 分类回显各组件安装状态和版本号；检测完成后临时容器自动销毁（--rm）。
 
 **可追溯性:** REQ-33
 **依赖:** T-04
