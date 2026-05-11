@@ -150,6 +150,8 @@ func (e *Engine) Diagnose(ctx context.Context) (*Diagnosis, error) {
 	// 如果核心依赖缺失，尝试自动安装
 	if !diag.CorePassed {
 		e.autoInstallCore(diag)
+		// 安装后重新检查核心依赖（REQ-32）
+		e.checkCoreDependency(diag)
 	}
 
 	// 核心依赖未通过时，跳过后续检测

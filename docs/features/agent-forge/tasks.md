@@ -756,7 +756,7 @@
 
 ### T-72: 实现 IT-10 DiagnosticEngine 三层诊断集成测试
 
-- [ ] 编写 DiagnosticEngine 集成测试（IT-10）：验证三层全部通过（Docker daemon 运行）场景和核心依赖缺失（mock 场景）、运行时异常（mock 场景）、自动修复（包管理器安装后重新检测）。使用 mock 模拟缺失依赖场景。
+- [x] 编写 DiagnosticEngine 集成测试（IT-10）：验证三层全部通过（Docker daemon 运行）场景和核心依赖缺失（mock 场景）、运行时异常（mock 场景）、自动修复（包管理器安装后重新检测）。使用 mock 模拟缺失依赖场景。
 
 **可追溯性:** REQ-31 · REQ-32 · NFR-17 · NFR-19
 **依赖:** T-69 · T-70
