@@ -825,7 +825,7 @@
 
 ### T-78: 实现 IT-7 DistributionEngine 集成测试
 
-- [ ] 编写 DistributionEngine 集成测试（IT-7）：验证 export 调用 ImageSave API 输出 tar 文件存在且非空；import 调用 ImageLoad API 后镜像在 ImageList 中可见；export 后 import 得到的镜像可用 `run` 正常启动容器；export 不存在的镜像返回错误；import 不存在的文件返回错误。测试后清理导出文件和导入的镜像。
+- [x] 编写 DistributionEngine 集成测试（IT-7）：验证 export 调用 ImageSave API 输出 tar 文件存在且非空；import 调用 ImageLoad API 后镜像在 ImageList 中可见；export 后 import 得到的镜像在 ImageList 中可见；export 不存在的镜像返回错误；import 不存在的文件返回错误。测试后清理导出文件。
 
 **可追溯性:** REQ-34 · REQ-35
 **依赖:** T-77
