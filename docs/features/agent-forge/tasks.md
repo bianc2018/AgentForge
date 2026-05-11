@@ -766,7 +766,7 @@
 
 ### T-73: 覆盖 Scenario "环境诊断" (E2E)
 
-- [ ] 实现 Gherkin step definitions：`Given Docker Engine 已安装并运行` `Given Docker 核心依赖已安装`、`When 开发者执行 doctor`、`Then 核心依赖检查全部通过` `And 运行时检查 Docker daemon 运行状态正常` `And 可选工具检查 buildx 安装状态` `And 所有三层诊断输出均为通过状态`；以及 `Given Docker 核心依赖缺失`、`Then 系统检测到缺失的核心依赖` `And 自动使用 apt-get / dnf / yum / brew 安装缺失组件` `And 安装完成后重新检测` `And 修复后诊断全部通过`。
+- [x] 实现 Gherkin step definitions：`Given Docker Engine 已安装并运行` `Given Docker 核心依赖已安装`、`When 开发者执行 doctor`、`Then 核心依赖检查全部通过` `And 运行时检查 Docker daemon 运行状态正常` `And 可选工具检查 buildx 安装状态` `And 所有三层诊断输出均为通过状态`；以及 `Given Docker 核心依赖缺失`、`Then 系统检测到缺失的核心依赖` `And 自动使用 apt-get / dnf / yum / brew 安装缺失组件` `And 安装完成后重新检测` `And 修复后诊断全部通过`。
 
 **可追溯性:** REQ-31 · REQ-32 · NFR-17 · NFR-18 · NFR-19 · Scenario: "环境诊断"
 **依赖:** T-69
