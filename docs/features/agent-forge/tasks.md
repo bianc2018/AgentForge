@@ -790,7 +790,7 @@
 
 ### T-75: 实现 IT-8 DepsInspector 集成测试
 
-- [ ] 编写 DepsInspector 集成测试（IT-8）：验证检测脚本生成合法且按 agent/skill/tool/runtime 分类；通过 `docker run --rm` 在临时容器中成功执行；输出被正确解析为分类结果；测试后确认无残留容器。
+- [x] 编写 DepsInspector 集成测试（IT-8）：验证检测脚本生成合法且按 agent/runtime/tool 分类；通过 `docker run --rm` 在临时容器中成功执行；输出被正确解析为分类结果；测试后确认无残留容器。
 
 **可追溯性:** REQ-33
 **依赖:** T-74
