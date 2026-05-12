@@ -16,7 +16,7 @@ import (
 	"github.com/agent-forge/cli/internal/shared/configresolver"
 )
 
-// endpointCmd represents the endpoint command (stub — subcommands will be added in T-47)
+// endpointCmd represents the endpoint command
 var endpointCmd = &cobra.Command{
 	Use:   "endpoint",
 	Short: "管理 LLM 端点配置",
