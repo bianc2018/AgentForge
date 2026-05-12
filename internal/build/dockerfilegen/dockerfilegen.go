@@ -140,6 +140,13 @@ func Generate(opts Options) (string, error) {
 		writeRHELSetup(&sb)
 	}
 
+	// 配置 curl 全局超时与重试（适用于后续所有 curl 下载）
+	sb.WriteString("\n# 配置 curl 超时与重试（应对网络缓慢）\n")
+	sb.WriteString("RUN echo '--connect-timeout 30' >> /root/.curlrc && \\\n")
+	sb.WriteString("    echo '--max-time 600' >> /root/.curlrc && \\\n")
+	sb.WriteString("    echo '--retry 3' >> /root/.curlrc && \\\n")
+	sb.WriteString("    echo '--retry-delay 10' >> /root/.curlrc\n")
+
 	// 3. 条件编译工具安装
 	if needs.needsGCC {
 		switch family {
@@ -214,6 +221,12 @@ func Generate(opts Options) (string, error) {
 	if len(opts.Deps) > 0 {
 		sb.WriteString("\n# 安装依赖\n")
 		for _, dep := range opts.Deps {
+			// 跳过已由语言运行时处理的依赖（避免重复安装和版本冲突）
+			if needs.needsNpm && strings.HasPrefix(dep, "node") {
+				fmt.Fprintf(&sb, "\n# %s: 跳过（Node.js 已由运行时层安装）\n", dep)
+				continue
+			}
+
 			method, err := depsmodule.ResolveInstallMethod(dep)
 			if err != nil {
 				return "", fmt.Errorf("解析依赖 %q 安装方式失败: %w", dep, err)
@@ -224,6 +237,7 @@ func Generate(opts Options) (string, error) {
 			commands := applyGHProxy(method.Commands, opts.GHProxy)
 
 			for _, cmd := range commands {
+				cmd = adaptCommandForFamily(cmd, family)
 				fmt.Fprintf(&sb, "RUN %s\n", cmd)
 			}
 		}
@@ -281,6 +295,17 @@ func writeRHELSetup(sb *strings.Builder) {
 	sb.WriteString("RUN yum install -y epel-release && \\\n")
 	sb.WriteString("    yum install -y curl git wget tar gzip unzip && \\\n")
 	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
+}
+
+// adaptCommandForFamily 将 RHEL 系包管理命令翻译为 Debian 系等效命令。
+// 对于非系统包管理的命令（curl、npm、pip 等）原样返回。
+func adaptCommandForFamily(cmd string, family ImageFamily) string {
+	if family != FamilyDebian {
+		return cmd
+	}
+	cmd = strings.ReplaceAll(cmd, "yum install -y", "apt-get install -y")
+	cmd = strings.ReplaceAll(cmd, "yum clean all && rm -rf /var/cache/yum/*", "apt-get clean && rm -rf /var/lib/apt/lists/*")
+	return cmd
 }
 
 // applyGHProxy 在命令中替换 GitHub 相关 URL 为代理 URL。
