@@ -266,3 +266,70 @@ func TestGenerate_StructuralIntegrity(t *testing.T) {
 
 	t.Logf("Generated Dockerfile:\n%s", dockerfile[:500]+"...")
 }
+
+func TestAdaptCommandForFamily_DebianTranslatesYumToApt(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{
+			name: "yum install translated",
+			cmd:  "yum install -y curl",
+			want: "apt-get install -y curl",
+		},
+		{
+			name: "yum clean translated",
+			cmd:  "yum clean all && rm -rf /var/cache/yum/*",
+			want: "apt-get clean && rm -rf /var/lib/apt/lists/*",
+		},
+		{
+			name: "curl command not translated",
+			cmd:  "curl -fsSL https://example.com/file -o /tmp/file",
+			want: "curl -fsSL https://example.com/file -o /tmp/file",
+		},
+		{
+			name: "npm command not translated",
+			cmd:  "npm install -g some-package",
+			want: "npm install -g some-package",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := adaptCommandForFamily(tt.cmd, FamilyDebian)
+			if got != tt.want {
+				t.Errorf("adaptCommandForFamily(%q, FamilyDebian) = %q, want %q", tt.cmd, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAdaptCommandForFamily_RHELNoChange(t *testing.T) {
+	cmd := "yum install -y docker"
+	got := adaptCommandForFamily(cmd, FamilyRHEL)
+	if got != cmd {
+		t.Errorf("adaptCommandForFamily(%q, FamilyRHEL) = %q, want unchanged", cmd, got)
+	}
+}
+
+func TestAdaptCommandForFamily_PackageNameMapping(t *testing.T) {
+	// docker → docker.io mapping on Debian family
+	cmd := "yum install -y docker"
+	got := adaptCommandForFamily(cmd, FamilyDebian)
+	if !strings.Contains(got, "apt-get install -y docker.io") {
+		t.Errorf("Expected docker → docker.io mapping on Debian, got: %q", got)
+	}
+	if strings.Contains(got, "apt-get install -y docker ") || got == "apt-get install -y docker" {
+		t.Errorf("Package name should be mapped to docker.io, got: %q", got)
+	}
+}
+
+func TestAdaptCommandForFamily_UnknownFamily(t *testing.T) {
+	// FamilyUnknown should behave like RHEL (no translation)
+	cmd := "yum install -y curl"
+	got := adaptCommandForFamily(cmd, FamilyUnknown)
+	if got != cmd {
+		t.Errorf("adaptCommandForFamily(%q, FamilyUnknown) = %q, want unchanged", cmd, got)
+	}
+}

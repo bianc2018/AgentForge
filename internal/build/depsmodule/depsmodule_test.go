@@ -241,6 +241,45 @@ func TestResolveInstallMethod_AllTypes(t *testing.T) {
 	}
 }
 
+func TestResolveInstallMethod_DockerUsesStaticBinary(t *testing.T) {
+	method, err := ResolveInstallMethod("docker")
+	if err != nil {
+		t.Fatalf("ResolveInstallMethod(\"docker\") error = %v", err)
+	}
+	if method.Type != DepTool {
+		t.Errorf("Type = %v, want DepTool", method.Type)
+	}
+	if len(method.Commands) != 3 {
+		t.Fatalf("Commands count = %d, want 3 (curl + tar + cleanup)", len(method.Commands))
+	}
+	// Must use curl to download static binary, not yum
+	if contains(method.Commands[0], "yum install") {
+		t.Error("docker install should use static binary, not yum")
+	}
+	if !contains(method.Commands[0], "download.docker.com/linux/static/stable") {
+		t.Error("docker install should download from Docker official static binary URL")
+	}
+	if !contains(method.Commands[0], "docker-24.0.7.tgz") {
+		t.Error("docker install should use default version 24.0.7")
+	}
+	if !contains(method.Commands[1], "tar -C /usr/local/bin") {
+		t.Error("docker install should extract to /usr/local/bin")
+	}
+}
+
+func TestResolveInstallMethod_DockerCustomVersion(t *testing.T) {
+	method, err := ResolveInstallMethod("docker@26.1.0")
+	if err != nil {
+		t.Fatalf("ResolveInstallMethod(\"docker@26.1.0\") error = %v", err)
+	}
+	if method.Version != "26.1.0" {
+		t.Errorf("Version = %q, want \"26.1.0\"", method.Version)
+	}
+	if !contains(method.Commands[0], "docker-26.1.0.tgz") {
+		t.Error("docker install should use custom version 26.1.0")
+	}
+}
+
 func TestResolveInstallMethod_GolangCommandsContainVersion(t *testing.T) {
 	method, err := ResolveInstallMethod("golang@1.21")
 	if err != nil {

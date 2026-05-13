@@ -162,7 +162,15 @@ var knownDeps = map[string]*depInfo{
 		name:    "docker",
 		depType: DepTool,
 		commands: func(version string) []string {
-			return []string{"yum install -y docker"}
+			v := version
+			if v == "" {
+				v = "24.0.7"
+			}
+			return []string{
+				fmt.Sprintf("curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-%s.tgz -o /tmp/docker.tgz", v),
+				"tar -C /usr/local/bin -xzf /tmp/docker.tgz docker/docker --strip-components=1",
+				"rm -f /tmp/docker.tgz",
+			}
 		},
 	},
 	"rtk": {

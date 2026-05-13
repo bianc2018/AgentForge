@@ -297,6 +297,12 @@ func writeRHELSetup(sb *strings.Builder) {
 	sb.WriteString("    yum clean all && rm -rf /var/cache/yum/*\n")
 }
 
+// pkgNameMap 将 RHEL 系常见包名映射为 Debian 系等效包名。
+// 用于 DepSystemPkg 类型依赖在 Debian 系基础镜像上使用正确的包名。
+var pkgNameMap = map[string]string{
+	"docker": "docker.io",
+}
+
 // adaptCommandForFamily 将 RHEL 系包管理命令翻译为 Debian 系等效命令。
 // 对于非系统包管理的命令（curl、npm、pip 等）原样返回。
 func adaptCommandForFamily(cmd string, family ImageFamily) string {
@@ -305,6 +311,10 @@ func adaptCommandForFamily(cmd string, family ImageFamily) string {
 	}
 	cmd = strings.ReplaceAll(cmd, "yum install -y", "apt-get install -y")
 	cmd = strings.ReplaceAll(cmd, "yum clean all && rm -rf /var/cache/yum/*", "apt-get clean && rm -rf /var/lib/apt/lists/*")
+	// 翻译已知的系统包名差异
+	for rhelPkg, debPkg := range pkgNameMap {
+		cmd = strings.ReplaceAll(cmd, "apt-get install -y "+rhelPkg, "apt-get install -y "+debPkg)
+	}
 	return cmd
 }
 
