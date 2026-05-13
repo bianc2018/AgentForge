@@ -13,6 +13,17 @@
 
 set -euo pipefail
 
+# ─── 确保 Go 工具链在 PATH 中 ─────────────────────────────────────
+# ~/go/bin 是 go install 的默认安装目标，/usr/local/go/bin 可能是手动安装的 Go
+for dir in "$HOME/go/bin" "/usr/local/go/bin"; do
+  if [[ -d "$dir" ]]; then
+    case ":$PATH:" in
+      *":$dir:"*) ;;
+      *) export PATH="$dir:$PATH" ;;
+    esac
+  fi
+done
+
 # ─── 颜色输出 ───────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -92,10 +103,15 @@ fi
 info "Go $(go version)"
 
 # 检查 goreleaser
-if ! command -v goreleaser &>/dev/null; then
+if ! command -v goreleaser &>/dev/null && [[ ! -x "$HOME/go/bin/goreleaser" ]]; then
   error "goreleaser 未安装"
   echo "  安装命令: go install github.com/goreleaser/goreleaser/v2@latest"
+  echo "  安装后请确保 ~/go/bin 在 PATH 中: export PATH=\$HOME/go/bin:\$PATH"
   exit 1
+fi
+# 如果 command -v 找不到但 ~/go/bin/goreleaser 存在，补上 PATH
+if ! command -v goreleaser &>/dev/null; then
+  export PATH="$HOME/go/bin:$PATH"
 fi
 info "goreleaser $(goreleaser --version 2>&1 | head -1)"
 

@@ -13,6 +13,9 @@ REM   - goreleaser（go install github.com/goreleaser/goreleaser/v2@latest）
 
 setlocal enabledelayedexpansion
 
+REM ─── 确保 Go 工具链在 PATH 中 ─────────────────────────────────────
+if exist "%USERPROFILE%\go\bin" set "PATH=%USERPROFILE%\go\bin;%PATH%"
+
 set VERSION=
 set RELEASE=false
 set SKIP_TESTS=
@@ -76,6 +79,7 @@ where goreleaser >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] goreleaser 未安装
     echo   安装命令: go install github.com/goreleaser/goreleaser/v2@latest
+    echo   安装后请确保 %%USERPROFILE%%\go\bin 在 PATH 中
     exit /b 1
 )
 echo [INFO] goreleaser 已就绪
