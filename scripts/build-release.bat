@@ -112,6 +112,26 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+REM ─── MSI 生成（Windows 安装包，需 WSL 或 Git Bash）────────────────
+set "MSI_SCRIPT=%~dp0\build-msi.sh"
+if exist "%MSI_SCRIPT%" (
+    where bash >nul 2>&1
+    if %ERRORLEVEL% equ 0 (
+        echo [INFO] 生成 MSI 安装包...
+        if "%VERSION%"=="" (
+            for /f "tokens=*" %%i in ('git rev-parse --short HEAD 2^>nul') do set "MSI_VER=%%i"
+            if "!MSI_VER!"=="" set "MSI_VER=dev"
+        ) else (
+            set "MSI_VER=%VERSION%"
+        )
+        bash "%MSI_SCRIPT%" "!MSI_VER!"
+    ) else (
+        echo [WARN] 未找到 bash^，跳过 MSI 生成 ^(MSI 需 WSL 或 Git Bash^)
+    )
+) else (
+    echo [WARN] build-msi.sh 未找到，跳过 MSI 生成
+)
+
 echo [INFO] 构建完成，产物在 dist\ 目录
 dir dist\ /b 2>nul | findstr /v "^$"
 exit /b 0

@@ -139,5 +139,15 @@ fi
 
 goreleaser "${RELEASE_FLAGS[@]}"
 
+# ─── MSI 生成（Windows 安装包）─────────────────────────────────────
+MSI_SCRIPT="$(dirname "$0")/build-msi.sh"
+if [[ -f "$MSI_SCRIPT" ]]; then
+  info "生成 MSI 安装包..."
+  MSI_VER="${VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')}"
+  bash "$MSI_SCRIPT" "$MSI_VER"
+else
+  warn "build-msi.sh 未找到，跳过 MSI 生成"
+fi
+
 info "构建完成，产物在 dist/ 目录"
 ls -lh dist/ 2>/dev/null | grep -v "^total" | grep -v "^d" || true
