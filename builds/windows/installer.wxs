@@ -12,7 +12,6 @@
       InstallerVersion="500"
       Compressed="yes"
       InstallScope="perMachine"
-      Platform="__PLATFORM__"
     />
 
     <MajorUpgrade
@@ -24,7 +23,7 @@
     <!-- 自定义安装目录：默认 C:\Program Files\AgentForge\ -->
     <!-- 命令行覆盖：msiexec /i agent-forge.msi INSTALLDIR="D:\Tools\AgentForge" -->
     <!-- 升级时自动读取旧版本的安装目录 -->
-    <Property Id="INSTALLDIR" Secure="yes">
+    <Property Id="INSTALLDIR">
       <RegistrySearch
         Id="FindInstallDir"
         Root="HKLM"
@@ -35,11 +34,11 @@
     </Property>
 
     <!-- 如果注册表中无旧安装记录，回退到默认路径 -->
-    <SetProperty
-      Id="INSTALLDIR"
-      Value="C:\Program Files\AgentForge\"
-      After="AppSearch"
-    >NOT INSTALLDIR</SetProperty>
+    <CustomAction Id="SetDefaultInstallDir" Property="INSTALLDIR"
+                  Value="C:\Program Files\AgentForge\" />
+    <InstallExecuteSequence>
+      <Custom Action="SetDefaultInstallDir" After="AppSearch">NOT INSTALLDIR</Custom>
+    </InstallExecuteSequence>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -51,16 +50,8 @@
               Source="__BINARY__"
               KeyPath="yes"
             />
-            <!-- 将安装目录注册到系统 PATH -->
-            <Environment
-              Id="PathEnv"
-              Name="PATH"
-              Value="[INSTALLDIR]"
-              Permanent="no"
-              Part="last"
-              Action="set"
-              System="yes"
-            />
+            <!-- 注意：wixl(msitools) 不支持 Environment 元素 -->
+            <!-- 安装后需手动将 %ProgramFiles%\AgentForge 加入 PATH -->
           </Component>
 
           <!-- 记录安装目录到注册表，供后续升级读取 -->
