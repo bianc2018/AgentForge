@@ -222,7 +222,7 @@ func AssembleContainerConfig(params argsparser.RunParams, wrapperScript string) 
 			if !alreadyMounted {
 				mounts = append(mounts, mount.Mount{
 					Type:     mount.TypeBind,
-					Source:   containerWorkdir,
+					Source:   nativeWorkdir,
 					Target:   containerWorkdir,
 					ReadOnly: false,
 				})
