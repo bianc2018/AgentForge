@@ -6,6 +6,9 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/agent-forge/cli/internal/shared/configresolver"
+	"github.com/agent-forge/cli/internal/shared/logging"
 )
 
 var (
@@ -41,6 +44,10 @@ var rootCmd = &cobra.Command{
 //
 // 特殊命令（如 run --run）可能使用其他退出码传递子进程退出状态。
 func Execute() {
+	// 初始化日志系统（使用默认配置目录，各子命令可通过 -c 覆盖）
+	configDir, _ := configresolver.Resolve("")
+	logging.Init(configDir)
+
 	if err := rootCmd.Execute(); err != nil {
 		// 检查是否实现了 ExitCoder 接口（自定义退出码）
 		var ec ExitCoder

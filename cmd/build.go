@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -28,13 +29,14 @@ var buildCmd = &cobra.Command{
 		ghProxy, _ := cmd.Flags().GetString("gh-proxy")
 
 		params := buildengine.BuildParams{
-			Deps:      deps,
-			BaseImage: baseImage,
-			Config:    config,
-			NoCache:   noCache,
-			Rebuild:   rebuild,
-			MaxRetry:  maxRetry,
-			GHProxy:   ghProxy,
+			Deps:           deps,
+			BaseImage:      baseImage,
+			Config:         config,
+			NoCache:        noCache,
+			Rebuild:        rebuild,
+			MaxRetry:       maxRetry,
+			GHProxy:        ghProxy,
+			ProgressWriter: os.Stdout,
 		}
 
 		// --- 创建 Docker 客户端 ---
@@ -45,10 +47,7 @@ var buildCmd = &cobra.Command{
 		defer helper.Close()
 
 		// --- 执行构建 ---
-		output, err := buildengine.New(helper).Build(cmd.Context(), params)
-		if output != "" {
-			fmt.Print(output)
-		}
+		_, err = buildengine.New(helper).Build(cmd.Context(), params)
 		if err != nil {
 			return err
 		}
