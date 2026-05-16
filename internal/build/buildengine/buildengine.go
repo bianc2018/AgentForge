@@ -18,11 +18,17 @@ import (
 
 	"github.com/agent-forge/cli/internal/build/depsmodule"
 	"github.com/agent-forge/cli/internal/build/dockerfilegen"
+	"github.com/agent-forge/cli/internal/shared/logging"
 	"github.com/agent-forge/cli/internal/shared/dockerhelper"
+	"github.com/agent-forge/cli/internal/shared/platform"
+	"github.com/agent-forge/cli/internal/shared/progress"
 )
 
 // ImageTag 是构建完成后赋予镜像的标准标签。
 const ImageTag = "agent-forge:latest"
+
+// ImageTagWindows 是 Windows 平台构建完成后赋予镜像的标准标签。
+const ImageTagWindows = "agent-forge:latest-windows"
 
 // BuildParams 是 BuildEngine 构建操作所需的完整参数集。
 type BuildParams struct {
@@ -31,8 +37,11 @@ type BuildParams struct {
 	Config    string // -c 参数（配置目录）
 	NoCache   bool   // --no-cache 参数
 	Rebuild   bool   // -R/--rebuild 参数
-	MaxRetry  int    // --max-retry 参数（默认 3）
-	GHProxy   string // --gh-proxy 参数（GitHub 代理 URL）
+	MaxRetry       int       // --max-retry 参数（默认 3）
+	GHProxy        string    // --gh-proxy 参数（GitHub 代理 URL）
+	ProgressWriter io.Writer // 实时进度输出 writer（如 os.Stdout），nil 则不输出实时进度
+	Platform       string    // 目标平台：""（Linux 默认）或 "windows"
+	DaemonOSType   string    // Docker daemon 的 OSType（由 CLI 层通过 GetDaemonOSType 获取后传入）
 }
 
 // Engine 是构建引擎，负责编排完整的镜像构建流程。
@@ -73,6 +82,16 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 		return "", err
 	}
 
+	// 1.5 解析平台：从 BaseImage 推断，未指定时根据 daemon OSType 回退
+	resolvedPlatform, resolvedImage, err := platform.ResolvePlatform(params.BaseImage, params.DaemonOSType)
+	if err != nil {
+		return "", &InvalidParamsError{Reason: err.Error()}
+	}
+	if params.BaseImage == "" {
+		params.BaseImage = resolvedImage
+	}
+	params.Platform = resolvedPlatform
+
 	// 2. 展开依赖
 	deps := depsmodule.ExpandDeps(params.Deps)
 
@@ -87,15 +106,21 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 		return "", fmt.Errorf("生成 Dockerfile 失败: %w", err)
 	}
 
-	// 4. 创建可重读的 tar 构建上下文
+	// 4. 创建构建上下文
 	buildContext, err := createBuildContext(dockerfile)
 	if err != nil {
+		logging.Error("创建构建上下文失败", "error", err)
 		return "", fmt.Errorf("创建构建上下文失败: %w", err)
 	}
+	logging.Info("开始镜像构建", "base_image", params.BaseImage, "deps_count", len(params.Deps))
 	buildContextBytes := buildContext.Bytes()
 
 	// 确定构建标签
-	buildTag := ImageTag
+	defaultTag := ImageTag
+	if params.Platform == platform.PlatformWindows {
+		defaultTag = ImageTagWindows
+	}
+	buildTag := defaultTag
 	tmpTag := ""
 	if params.Rebuild {
 		params.NoCache = true // 重建模式自动叠加 --no-cache
@@ -114,6 +139,9 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 		ForceRemove: true,
 		Dockerfile:  "Dockerfile",
 	}
+	if params.Platform == platform.PlatformWindows {
+		buildOpts.Platform = "windows/amd64"
+	}
 
 	// 5. 执行构建（带重试）
 	var outputBuf bytes.Buffer
@@ -129,8 +157,12 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 
 		if attempt > 0 {
 			backoff := CalculateBackoff(attempt)
+			logging.Warn("构建重试", "attempt", attempt, "max_retry", params.MaxRetry, "backoff", backoff)
 			waitMsg := fmt.Sprintf("\n[重试 %d/%d] 等待 %v 后重新构建...\n", attempt, params.MaxRetry, backoff)
 			outputBuf.WriteString(waitMsg)
+			if params.ProgressWriter != nil {
+				params.ProgressWriter.Write([]byte(waitMsg))
+			}
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
@@ -149,9 +181,21 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 			return outputBuf.String(), fmt.Errorf("Docker 构建失败: %w", err)
 		}
 
-		output, readErr := io.ReadAll(resp.Body)
+		// 流式读取构建输出：同时写入 ProgressWriter（实时显示）和 streamBuf（错误分析）
+		var streamBuf bytes.Buffer
+		var mw io.Writer = &streamBuf
+		if params.ProgressWriter != nil {
+			mw = io.MultiWriter(params.ProgressWriter, &streamBuf)
+		}
+		ctxWriter := progress.NewContextWriter(ctx, mw)
+		_, readErr := io.Copy(ctxWriter, resp.Body)
 		resp.Body.Close()
 		if readErr != nil {
+			// context 取消：立即返回，不进行重试
+			if ctx.Err() != nil {
+				outputBuf.WriteString(streamBuf.String())
+				return outputBuf.String(), fmt.Errorf("构建被中断: %w", ctx.Err())
+			}
 			lastErr = readErr
 			if isRetryableError(readErr) {
 				continue
@@ -159,7 +203,7 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 			return outputBuf.String(), fmt.Errorf("读取构建输出失败: %w", readErr)
 		}
 
-		outputStr := string(output)
+		outputStr := streamBuf.String()
 		outputBuf.WriteString(outputStr)
 
 		if isBuildSuccessful(outputStr) {
@@ -169,7 +213,11 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 
 		// 检查构建输出中是否包含可重试的网络错误（curl SSL、连接重置等）
 		if attempt < params.MaxRetry && isRetryableError(fmt.Errorf(outputStr)) {
-			outputBuf.WriteString(fmt.Sprintf("\n[检测到网络错误，将进行重试 %d/%d]\n", attempt+1, params.MaxRetry))
+			retryMsg := fmt.Sprintf("\n[检测到网络错误，将进行重试 %d/%d]\n", attempt+1, params.MaxRetry)
+			outputBuf.WriteString(retryMsg)
+			if params.ProgressWriter != nil {
+				params.ProgressWriter.Write([]byte(retryMsg))
+			}
 			continue
 		}
 
@@ -183,8 +231,9 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 
 	// 6. 处理构建结果
 	if buildSucceeded {
+		logging.Info("镜像构建成功", "tag", buildTag)
 		if params.Rebuild {
-			if err := e.handleRebuildSuccess(ctx, tmpTag); err != nil {
+			if err := e.handleRebuildSuccess(ctx, tmpTag, defaultTag); err != nil {
 				return outputBuf.String(), err
 			}
 		} else {
@@ -228,10 +277,10 @@ func (e *Engine) Build(ctx context.Context, params BuildParams) (string, error) 
 //  2. 将临时标签指向新镜像的 ImageTag
 //  3. 删除旧镜像
 //  4. 删除临时标签
-func (e *Engine) handleRebuildSuccess(ctx context.Context, tmpTag string) error {
+func (e *Engine) handleRebuildSuccess(ctx context.Context, tmpTag, defaultTag string) error {
 	// 1. 查找旧镜像 ID（如果存在）
 	oldImageID := ""
-	oldExists, err := e.helper.ImageExists(ctx, ImageTag)
+	oldExists, err := e.helper.ImageExists(ctx, defaultTag)
 	if err != nil {
 		return fmt.Errorf("重建：检查旧镜像失败: %w", err)
 	}
@@ -243,7 +292,7 @@ func (e *Engine) handleRebuildSuccess(ctx context.Context, tmpTag string) error 
 		}
 		for _, img := range images {
 			for _, tag := range img.RepoTags {
-				if tag == ImageTag {
+				if tag == defaultTag {
 					oldImageID = img.ID
 					break
 				}
@@ -255,7 +304,7 @@ func (e *Engine) handleRebuildSuccess(ctx context.Context, tmpTag string) error 
 	}
 
 	// 2. 将临时标签指向正式标签
-	if err := e.helper.ImageTag(ctx, tmpTag, ImageTag); err != nil {
+	if err := e.helper.ImageTag(ctx, tmpTag, defaultTag); err != nil {
 		return fmt.Errorf("重建：标签替换失败（临时标签 %s -> %s）: %w", tmpTag, ImageTag, err)
 	}
 
@@ -269,7 +318,7 @@ func (e *Engine) handleRebuildSuccess(ctx context.Context, tmpTag string) error 
 
 	// 4. 删除临时标签
 	if _, err := e.helper.ImageRemove(ctx, tmpTag, true, true); err != nil {
-		// 临时标签可能已被 ImageTag 引用，忽略残留标签删除错误
+		// 临时标签可能已被 defaultTag 引用，忽略残留标签删除错误
 	}
 
 	return nil

@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/agent-forge/cli/internal/deps/depsinspector"
+	"github.com/agent-forge/cli/internal/shared/platform"
 )
 
 // depsCmd represents the deps command
@@ -20,8 +21,14 @@ var depsCmd = &cobra.Command{
 		// --- 获取参数 ---
 		imageRef, _ := cmd.Flags().GetString("image")
 
+		// --- 推断平台 ---
+		plt := ""
+		if imageRef != "" {
+			plt = platform.InferPlatform(imageRef)
+		}
+
 		// --- 执行依赖检测 ---
-		result, err := depsinspector.RunDetection(imageRef)
+		result, err := depsinspector.RunDetection(imageRef, plt)
 		if err != nil {
 			return fmt.Errorf("依赖检测失败: %w", err)
 		}

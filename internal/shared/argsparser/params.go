@@ -78,6 +78,14 @@ type RunParams struct {
 	// Config 是 -c/--config 参数指定的配置目录路径。
 	// 空字符串表示使用默认路径。
 	Config string
+
+	// BaseImage 是 -b/--base-image 参数指定的基础镜像名称。
+	// 用于平台推断。
+	BaseImage string
+
+	// Platform 是从 BaseImage 推断出的目标平台（""=Linux, "windows"=Windows）。
+	// 由 CLI 层在调用 RunEngine 前通过 platform.ResolvePlatform 填充。
+	Platform string
 }
 
 // DefaultRunParams 返回 run 命令的默认参数集。

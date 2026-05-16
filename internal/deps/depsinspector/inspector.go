@@ -51,6 +51,33 @@ type InspectionResult struct {
 	Items []DependencyStatus `json:"items"`
 }
 
+// GenerateScriptWindows 生成 PowerShell 检测脚本。
+//
+// Windows 容器中通过 Get-Command 检查可执行文件，获取版本信息。
+// 每行输出格式：component|type|status|version
+func GenerateScriptWindows() string {
+	var buf bytes.Buffer
+	buf.WriteString("# agent-forge deps inspector - Windows PowerShell detection script\n\n")
+
+	for _, item := range depCheckItems {
+		buf.WriteString(fmt.Sprintf("# %s\n", item.Name))
+		buf.WriteString(fmt.Sprintf(`$cmd = Get-Command %s -ErrorAction SilentlyContinue
+if ($cmd) {
+  try {
+    $ver = Invoke-Expression "%s" 2>$null
+    if ($ver) { Write-Output "%s|%s|installed|$ver" } else { Write-Output "%s|%s|installed|" }
+  } catch {
+    Write-Output "%s|%s|installed|"
+  }
+} else {
+  Write-Output "%s|%s|missing|"
+}
+`, item.Which, item.Command, item.Name, item.Type, item.Name, item.Type, item.Name, item.Type, item.Name, item.Type))
+	}
+
+	return buf.String()
+}
+
 // CommandRunner 是 exec.Command 的可 mock 封装。
 // 用于在测试中替换实际的 docker 命令执行。
 var CommandRunner = func(name string, args ...string) ([]byte, error) {
@@ -126,16 +153,29 @@ func ParseOutput(data []byte) (*InspectionResult, error) {
 // 收集并返回各依赖的安装状态。容器执行完毕后自动销毁（--rm）。
 //
 // 当 imageRef 为空时默认使用 "agent-forge:latest"。
-func RunDetection(imageRef string) (*InspectionResult, error) {
+// platform 为空表示 Linux，为 "windows" 时使用 PowerShell 脚本。
+func RunDetection(imageRef, platform string) (*InspectionResult, error) {
 	ref := imageRef
 	if ref == "" {
 		ref = "agent-forge:latest"
 	}
 
+	var shell, shellFlag string
+	if platform == "windows" {
+		shell = "powershell"
+		shellFlag = "-Command"
+	} else {
+		shell = "bash"
+		shellFlag = "-c"
+	}
+
 	script := GenerateScript()
+	if platform == "windows" {
+		script = GenerateScriptWindows()
+	}
 
 	// 使用 docker run --rm 执行检测脚本（REQ-33）
-	output, err := CommandRunner("docker", "run", "--rm", ref, "bash", "-c", script)
+	output, err := CommandRunner("docker", "run", "--rm", ref, shell, shellFlag, script)
 	if err != nil {
 		return nil, fmt.Errorf("docker run --rm 执行失败: %w\n输出: %s", err, string(output))
 	}

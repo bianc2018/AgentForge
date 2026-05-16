@@ -80,12 +80,20 @@ var doctorCmd = &cobra.Command{
 			printIssues(result.Issues, "可选工具")
 		}
 
+		// 第四层：平台兼容性
+		printLayerResult("第四层 - 平台兼容性", result.PlatformPassed)
+		if !result.PlatformPassed {
+			printIssues(result.Issues, "平台兼容性")
+		} else {
+			printPlatformInfo(result.Issues)
+		}
+
 		fmt.Println()
 
 		// 总结
-		allPassed := result.CorePassed && result.RuntimePassed && result.OptionalPassed
+		allPassed := result.CorePassed && result.RuntimePassed && result.OptionalPassed && result.PlatformPassed
 		if allPassed {
-			fmt.Println("  结果: 全部通过 (3/3)")
+			fmt.Println("  结果: 全部通过 (4/4)")
 		} else {
 			failed := 0
 			if !result.CorePassed {
@@ -110,6 +118,15 @@ var doctorCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// printPlatformInfo 输出平台兼容性层的信息（通过时显示 daemon OS 信息）。
+func printPlatformInfo(issues []diagnosticengine.Issue) {
+	for _, issue := range issues {
+		if issue.Layer == "平台兼容性" && issue.Type == diagnosticengine.IssueAllPassed {
+			fmt.Printf("    -> %s\n", issue.Message)
+		}
+	}
 }
 
 // printLayerResult 输出单层诊断结果。

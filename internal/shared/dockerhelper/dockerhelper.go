@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -20,9 +21,31 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+// dockerSDKClient 定义 dockerhelper 内部使用的 Docker SDK 方法子集。
+// 用于在测试中注入 mock SDK 客户端，无需真实 Docker daemon。
+type dockerSDKClient interface {
+	Ping(ctx context.Context) (types.Ping, error)
+	Info(ctx context.Context) (types.Info, error)
+	ImageList(ctx context.Context, options types.ImageListOptions) ([]types.ImageSummary, error)
+	ImageBuild(ctx context.Context, buildContext io.Reader, options types.ImageBuildOptions) (types.ImageBuildResponse, error)
+	ImageTag(ctx context.Context, source, target string) error
+	ImageRemove(ctx context.Context, imageID string, options types.ImageRemoveOptions) ([]types.ImageDeleteResponseItem, error)
+	ImageSave(ctx context.Context, imageIDs []string) (io.ReadCloser, error)
+	ImageLoad(ctx context.Context, input io.Reader, quiet bool) (types.ImageLoadResponse, error)
+	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *specs.Platform, containerName string) (container.ContainerCreateCreatedBody, error)
+	ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error
+	ContainerAttach(ctx context.Context, containerID string, options types.ContainerAttachOptions) (types.HijackedResponse, error)
+	ContainerWait(ctx context.Context, containerID string, condition container.WaitCondition) (<-chan container.ContainerWaitOKBody, <-chan error)
+	ContainerResize(ctx context.Context, containerID string, options types.ResizeOptions) error
+	ContainerKill(ctx context.Context, containerID, signal string) error
+	ContainerStop(ctx context.Context, containerID string, timeout *time.Duration) error
+	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
+	Close() error
+}
+
 // Client 封装 Docker SDK client，提供便捷的 Docker daemon 操作方法。
 type Client struct {
-	api *client.Client
+	api dockerSDKClient
 }
 
 // NewClient 创建 Docker Helper 客户端。
@@ -260,6 +283,53 @@ func (c *Client) ContainerRemove(ctx context.Context, containerID string, force,
 		return ClassifyError(fmt.Errorf("删除容器失败: %w", err))
 	}
 	return nil
+}
+
+// ContainerResize 调整容器终端尺寸。
+//
+// 调用 Docker Engine API POST /containers/{id}/resize，将主机终端
+// 尺寸同步到容器 PTY，确保容器内程序能正确渲染输出。
+func (c *Client) ContainerResize(ctx context.Context, containerID string, height, width uint) error {
+	options := types.ResizeOptions{Height: height, Width: width}
+	err := c.api.ContainerResize(ctx, containerID, options)
+	if err != nil {
+		return fmt.Errorf("调整容器终端尺寸失败: %w", err)
+	}
+	return nil
+}
+
+// ContainerKill 向指定容器发送信号。
+//
+// signal 为信号名称（如 "SIGINT"、"SIGTERM"、"SIGKILL"）。
+func (c *Client) ContainerKill(ctx context.Context, containerID, signal string) error {
+	err := c.api.ContainerKill(ctx, containerID, signal)
+	if err != nil {
+		return fmt.Errorf("终止容器失败: %w", err)
+	}
+	return nil
+}
+
+// ContainerStop 停止指定容器。
+//
+// Windows 容器不支持 POSIX 信号，使用 ContainerStop 是安全的停止方式。
+// timeout 为等待超时时间，nil 使用 daemon 默认值。
+func (c *Client) ContainerStop(ctx context.Context, containerID string, timeout *time.Duration) error {
+	err := c.api.ContainerStop(ctx, containerID, timeout)
+	if err != nil {
+		return fmt.Errorf("停止容器失败: %w", err)
+	}
+	return nil
+}
+
+// GetDaemonOSType 返回 Docker daemon 的操作系统类型。
+//
+// 通过 Info API 获取 OSType 字段，返回 "linux" 或 "windows"。
+func (c *Client) GetDaemonOSType(ctx context.Context) (string, error) {
+	info, err := c.Info(ctx)
+	if err != nil {
+		return "", fmt.Errorf("获取 Docker daemon OS 类型失败: %w", err)
+	}
+	return info.OSType, nil
 }
 
 // Standard errors for Docker connection issues.

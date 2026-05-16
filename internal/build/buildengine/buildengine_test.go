@@ -11,6 +11,7 @@ import (
 
 	"github.com/agent-forge/cli/internal/build/dockerfilegen"
 	"github.com/agent-forge/cli/internal/shared/dockerhelper"
+	"github.com/agent-forge/cli/internal/shared/platform"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 )
@@ -202,6 +203,10 @@ func TestBuildEngine_New(t *testing.T) {
 // verify the basic build pipeline works end-to-end.
 // This is an integration test that requires Docker daemon with base image cached.
 func TestBuildEngine_BuildWithMinimalDeps(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试：需要完整 Docker 构建（使用 -short 跳过）")
+	}
+
 	helper, err := dockerhelper.NewClient()
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
@@ -322,6 +327,10 @@ func TestBuildEngine_BuildFailure(t *testing.T) {
 // Uses a pre-existing base image tagged as agent-forge:latest to avoid
 // a full initial build.
 func TestBuildEngine_RebuildFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试：依赖全局 Docker agent-forge:latest 状态（使用 -short 跳过）")
+	}
+
 	helper, err := dockerhelper.NewClient()
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
@@ -341,6 +350,9 @@ func TestBuildEngine_RebuildFailure(t *testing.T) {
 		t.Skipf("Base image %s not cached, skipping integration test", baseImage)
 	}
 
+	// Clean up any residual agent-forge:latest from previous tests to avoid state pollution
+	_, _ = helper.ImageRemove(context.Background(), ImageTag, true, true)
+
 	// Tag base image as agent-forge:latest (simulates existing image)
 	if err := helper.ImageTag(pingCtx, baseImage, ImageTag); err != nil {
 		t.Fatalf("ImageTag() error = %v", err)
@@ -348,6 +360,12 @@ func TestBuildEngine_RebuildFailure(t *testing.T) {
 	defer func() {
 		_, _ = helper.ImageRemove(context.Background(), ImageTag, true, true)
 	}()
+
+	// Verify the tag was created
+	taggedExists, err := helper.ImageExists(pingCtx, ImageTag)
+	if err != nil || !taggedExists {
+		t.Fatalf("ImageTag succeeded but ImageExists(%q) returned exists=%v, err=%v", ImageTag, taggedExists, err)
+	}
 
 	// Get original image ID
 	images, err := helper.ImageList(pingCtx, types.ImageListOptions{})
@@ -366,6 +384,9 @@ func TestBuildEngine_RebuildFailure(t *testing.T) {
 			break
 		}
 	}
+	if origID == "" {
+		t.Fatal("Could not find agent-forge:latest after tagging")
+	}
 
 	engine := New(helper)
 	defer engine.Close()
@@ -374,7 +395,7 @@ func TestBuildEngine_RebuildFailure(t *testing.T) {
 	defer buildCancel()
 
 	// Rebuild with invalid base image should fail
-	_, err = engine.Build(buildCtx, BuildParams{
+	output, err := engine.Build(buildCtx, BuildParams{
 		BaseImage: "docker.1ms.run/nonexistent:latest",
 		MaxRetry:  0,
 		Rebuild:   true,
@@ -383,9 +404,13 @@ func TestBuildEngine_RebuildFailure(t *testing.T) {
 		t.Fatal("Build() expected error with nonexistent base image in rebuild mode")
 	}
 	t.Logf("Rebuild failure returned expected error: %v", err)
+	t.Logf("Build output:\n%s", output)
 
-	// Verify original agent-forge:latest still exists with same ID
-	images2, err := helper.ImageList(buildCtx, types.ImageListOptions{})
+	// Verify original agent-forge:latest still exists with same ID (use fresh context
+	// because buildCtx may be close to deadline after a slow Docker operation)
+	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer verifyCancel()
+	images2, err := helper.ImageList(verifyCtx, types.ImageListOptions{})
 	if err != nil {
 		t.Fatalf("ImageList() error = %v", err)
 	}
@@ -412,6 +437,10 @@ func TestBuildEngine_RebuildFailure(t *testing.T) {
 // TestBuildEngine_RebuildSuccess verifies rebuild mode atomically replaces
 // the existing image with a newly built one.
 func TestBuildEngine_RebuildSuccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试：需要完整 Docker 构建（使用 -short 跳过）")
+	}
+
 	helper, err := dockerhelper.NewClient()
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
@@ -550,3 +579,45 @@ func TestRebuild_SuccessPath_WithoutDocker(t *testing.T) {
 	t.Logf("Rebuild mode with unreachable Docker returned expected error: %v", err)
 }
 
+
+func TestBuildParams_WindowsImageOnLinuxDaemon(t *testing.T) {
+	_, _, err := platform.ResolvePlatform(
+		"mcr.microsoft.com/powershell:lts-nanoserver-1809",
+		"linux",
+	)
+	if err == nil {
+		t.Fatal("Windows image on Linux daemon should return error")
+	}
+}
+
+func TestBuildParams_WindowsDaemonDefaultImage(t *testing.T) {
+	resolvedPlatform, resolvedImage, err := platform.ResolvePlatform("", "windows")
+	if err != nil {
+		t.Fatalf("ResolvePlatform() unexpected error: %v", err)
+	}
+	if resolvedPlatform != platform.PlatformWindows {
+		t.Errorf("platform = %q, want windows", resolvedPlatform)
+	}
+	if resolvedImage != platform.DefaultWindowsBaseImage {
+		t.Errorf("image = %q, want %q", resolvedImage, platform.DefaultWindowsBaseImage)
+	}
+}
+
+func TestBuildParams_LinuxDaemonDefaultImage(t *testing.T) {
+	resolvedPlatform, resolvedImage, err := platform.ResolvePlatform("", "linux")
+	if err != nil {
+		t.Fatalf("ResolvePlatform() unexpected error: %v", err)
+	}
+	if resolvedPlatform != platform.PlatformLinux {
+		t.Errorf("platform = %q, want linux", resolvedPlatform)
+	}
+	if resolvedImage != platform.DefaultLinuxBaseImage {
+		t.Errorf("image = %q, want %q", resolvedImage, platform.DefaultLinuxBaseImage)
+	}
+}
+
+func TestImageTagWindowsConstant(t *testing.T) {
+	if ImageTagWindows != "agent-forge:latest-windows" {
+		t.Errorf("ImageTagWindows = %q, want agent-forge:latest-windows", ImageTagWindows)
+	}
+}

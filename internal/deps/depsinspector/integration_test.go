@@ -261,7 +261,7 @@ func TestIT8_DockerRun_RunWithExistingImage(t *testing.T) {
 		t.Skipf("镜像 %s 不存在，跳过集成测试", imageRef)
 	}
 
-	result, err := RunDetection(imageRef)
+	result, err := RunDetection(imageRef, "")
 	if err != nil {
 		t.Fatalf("RunDetection() 返回错误: %v", err)
 	}
@@ -300,5 +300,25 @@ func TestIT8_DockerRun_RunWithExistingImage(t *testing.T) {
 	psOutput, _ := psCmd.CombinedOutput()
 	if strings.Contains(string(psOutput), imageRef) {
 		t.Errorf("存在残留容器: docker ps -a 中仍有包含 %s 的条目", imageRef)
+	}
+}
+
+func TestGenerateScriptWindows_ContainsGetCommand(t *testing.T) {
+	script := GenerateScriptWindows()
+	if script == "" {
+		t.Fatal("GenerateScriptWindows() returned empty string")
+	}
+	if !strings.Contains(script, "Get-Command") {
+		t.Error("Windows script should use Get-Command")
+	}
+	if !strings.Contains(script, "Write-Output") {
+		t.Error("Windows script should use Write-Output")
+	}
+	// Should not contain bash syntax
+	if strings.Contains(script, "#!/bin/bash") {
+		t.Error("Windows script should not contain bash shebang")
+	}
+	if strings.Contains(script, "command -v") {
+		t.Error("Windows script should not use command -v")
 	}
 }

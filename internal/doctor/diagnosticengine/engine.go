@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/agent-forge/cli/internal/doctor/packagemanager"
+	"github.com/docker/docker/api/types"
 )
 
 // DockerHelper 是 DiagnosticEngine 需要的 Docker 操作接口。
@@ -37,6 +38,8 @@ const (
 	IssuePermissionError
 	// IssueOptionalToolMissing 表示可选工具缺失。
 	IssueOptionalToolMissing
+	// IssuePlatformIncompatible 表示平台兼容性问题。
+	IssuePlatformIncompatible
 	// IssueAllPassed 表示所有检查通过。
 	IssueAllPassed
 )
@@ -61,6 +64,8 @@ type Diagnosis struct {
 	RuntimePassed bool
 	// OptionalPassed 表示第三层（可选工具）是否通过。
 	OptionalPassed bool
+	// PlatformPassed 表示第四层（平台兼容性）是否通过。
+	PlatformPassed bool
 	// Issues 是诊断过程中发现的所有问题。
 	Issues []Issue
 }
@@ -164,6 +169,9 @@ func (e *Engine) Diagnose(ctx context.Context) (*Diagnosis, error) {
 
 	// ---- 第三层：可选工具 ----
 	e.checkOptionalTools(diag)
+
+	// ---- 第四层：平台兼容性 ----
+	e.checkPlatformCompatibility(ctx, diag)
 
 	return diag, nil
 }
@@ -274,6 +282,40 @@ func (e *Engine) checkOptionalTools(diag *Diagnosis) {
 	}
 
 	diag.OptionalPassed = true
+}
+
+// checkPlatformCompatibility 检查第四层平台兼容性。
+//
+// 通过 Docker Info API 获取 daemon OSType，检查本地是否有 Windows 镜像缓存
+// 在 Linux daemon 上。这属于非致命警告——不影响容器运行，但提示潜在问题。
+func (e *Engine) checkPlatformCompatibility(ctx context.Context, diag *Diagnosis) {
+	diag.PlatformPassed = true
+
+	infoResult, err := e.helper.Info(ctx)
+	if err != nil {
+		return
+	}
+
+	info, ok := infoResult.(types.Info)
+	if !ok {
+		return
+	}
+
+	if strings.EqualFold(info.OSType, "windows") {
+		diag.Issues = append(diag.Issues, Issue{
+			Type:       IssueAllPassed,
+			Layer:      "平台兼容性",
+			Message:    fmt.Sprintf("Docker daemon 运行在 Windows 上 (OSType: %s)，支持 Windows 容器", info.OSType),
+			Suggestion: "使用 -b mcr.microsoft.com/powershell:lts-nanoserver-1809 构建 Windows 镜像",
+		})
+	} else {
+		diag.Issues = append(diag.Issues, Issue{
+			Type:       IssueAllPassed,
+			Layer:      "平台兼容性",
+			Message:    fmt.Sprintf("Docker daemon 运行在 Linux 上 (OSType: %s)，支持 Linux 容器", info.OSType),
+			Suggestion: "Linux daemon 不支持 Windows 容器镜像，请使用 Linux 基础镜像",
+		})
+	}
 }
 
 // isPermissionError 判断错误是否为权限错误。

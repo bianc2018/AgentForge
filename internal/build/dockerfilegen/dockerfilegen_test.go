@@ -333,3 +333,802 @@ func TestAdaptCommandForFamily_UnknownFamily(t *testing.T) {
 		t.Errorf("adaptCommandForFamily(%q, FamilyUnknown) = %q, want unchanged", cmd, got)
 	}
 }
+
+// --- detectImageFamily tests ---
+
+func TestDetectImageFamily(t *testing.T) {
+	tests := []struct {
+		name      string
+		baseImage string
+		want      ImageFamily
+	}{
+		{"ubuntu", "ubuntu:22.04", FamilyDebian},
+		{"ubuntu latest", "ubuntu:latest", FamilyDebian},
+		{"debian", "debian:11", FamilyDebian},
+		{"debian slim", "debian:bookworm-slim", FamilyDebian},
+		{"centos", "centos:7", FamilyRHEL},
+		{"centos stream", "centos:stream9", FamilyRHEL},
+		{"rhel", "registry.access.redhat.com/rhel:8", FamilyRHEL},
+		{"fedora", "fedora:39", FamilyRHEL},
+		{"rocky", "rockylinux:9", FamilyRHEL},
+		{"almalinux", "almalinux:9", FamilyRHEL},
+		{"oraclelinux", "oraclelinux:8", FamilyRHEL},
+		{"alpine", "alpine:3.18", FamilyUnknown},
+		{"scratch", "scratch", FamilyUnknown},
+		{"empty image string", "", FamilyUnknown},
+		{"case insensitive debian", "Ubuntu:22.04", FamilyDebian},
+		{"case insensitive rhel", "CentOS:7", FamilyRHEL},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectImageFamily(tt.baseImage)
+			if got != tt.want {
+				t.Errorf("detectImageFamily(%q) = %v, want %v", tt.baseImage, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- applyGHProxy tests ---
+
+func TestApplyGHProxy_EmptyProxyReturnsCommandsUnchanged(t *testing.T) {
+	cmds := []string{"curl -fsSL https://github.com/foo/bar -o /tmp/bar", "echo done"}
+	got := applyGHProxy(cmds, "")
+	if len(got) != len(cmds) {
+		t.Fatalf("len(got) = %d, want %d", len(got), len(cmds))
+	}
+	for i := range cmds {
+		if got[i] != cmds[i] {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], cmds[i])
+		}
+	}
+}
+
+func TestApplyGHProxy_GithubURLsPrefixed(t *testing.T) {
+	cmds := []string{
+		"curl -fsSL https://github.com/opencode-ai/opencode/releases/download/v0.0.55/opencode-linux-x86_64.tar.gz -o /tmp/opencode.tar.gz",
+		"tar -C /usr/local/bin -xzf /tmp/opencode.tar.gz opencode",
+	}
+	proxy := "https://ghproxy.example.com/"
+	got := applyGHProxy(cmds, proxy)
+	if !strings.Contains(got[0], proxy+"https://github.com/") {
+		t.Errorf("github URL should be prefixed with proxy, got: %q", got[0])
+	}
+	if got[1] != cmds[1] {
+		t.Errorf("non-github command should be unchanged, got[%d] = %q", 1, got[1])
+	}
+}
+
+func TestApplyGHProxy_NonGithubURLsNotAffected(t *testing.T) {
+	cmds := []string{
+		"curl -fsSL https://golang.google.cn/dl/go1.22.3.linux-amd64.tar.gz -o /tmp/go.tar.gz",
+		"echo hello",
+	}
+	proxy := "https://ghproxy.example.com/"
+	got := applyGHProxy(cmds, proxy)
+	for i := range cmds {
+		if got[i] != cmds[i] {
+			t.Errorf("non-github command should be unchanged, got[%d] = %q", i, got[i])
+		}
+	}
+}
+
+func TestApplyGHProxy_NilInput(t *testing.T) {
+	got := applyGHProxy(nil, "https://ghproxy.example.com/")
+	if got == nil {
+		t.Error("expected non-nil empty slice for nil input with proxy set")
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty slice, got len=%d", len(got))
+	}
+}
+
+// --- writeDebianSetup tests ---
+
+func TestWriteDebianSetup(t *testing.T) {
+	var sb strings.Builder
+	writeDebianSetup(&sb)
+	output := sb.String()
+
+	if !strings.Contains(output, "mirrors.aliyun.com") {
+		t.Error("Debian setup should contain Aliyun mirror configuration")
+	}
+	if !strings.Contains(output, "archive.ubuntu.com") {
+		t.Error("Debian setup should reference archive.ubuntu.com sources")
+	}
+	if !strings.Contains(output, "deb.debian.org/debian") {
+		t.Error("Debian setup should reference deb.debian.org sources")
+	}
+	if !strings.Contains(output, "apt-get update") {
+		t.Error("Debian setup should contain apt-get update")
+	}
+	if !strings.Contains(output, "apt-get install -y curl git wget tar gzip unzip ca-certificates") {
+		t.Error("Debian setup should contain base tool installation")
+	}
+	if !strings.Contains(output, "rm -rf /var/lib/apt/lists/*") {
+		t.Error("Debian setup should clean apt lists")
+	}
+}
+
+// --- writeRHELSetup tests ---
+
+func TestWriteRHELSetup(t *testing.T) {
+	var sb strings.Builder
+	writeRHELSetup(&sb)
+	output := sb.String()
+
+	if !strings.Contains(output, "mirrors.aliyun.com/centos-vault") {
+		t.Error("RHEL setup should contain Aliyun CentOS vault mirror")
+	}
+	if !strings.Contains(output, "yum install -y epel-release") {
+		t.Error("RHEL setup should install epel-release")
+	}
+	if !strings.Contains(output, "yum install -y curl git wget tar gzip unzip") {
+		t.Error("RHEL setup should contain base tool installation")
+	}
+	if !strings.Contains(output, "rm -rf /var/cache/yum/*") {
+		t.Error("RHEL setup should clean yum cache")
+	}
+	if !strings.Contains(output, "mirrorlist") {
+		t.Error("RHEL setup should reference mirrorlist in sed")
+	}
+}
+
+// --- analyzeRuntimeNeeds tests ---
+
+func TestAnalyzeRuntimeNeeds(t *testing.T) {
+	tests := []struct {
+		name    string
+		deps    []string
+		wantNpm bool
+		wantPip bool
+		wantGCC bool
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "npm dep sets npm and gcc",
+			deps:    []string{"claude"},
+			wantNpm: true,
+			wantGCC: true,
+		},
+		{
+			name:    "pip dep sets pip",
+			deps:    []string{"rtk"},
+			wantPip: true,
+		},
+		{
+			name:    "npm and pip deps set all",
+			deps:    []string{"claude", "rtk"},
+			wantNpm: true,
+			wantPip: true,
+			wantGCC: true,
+		},
+		{
+			name:    "system dep sets nothing",
+			deps:    []string{"unknown-pkg"},
+		},
+		{
+			name:    "docker dep sets nothing",
+			deps:    []string{"docker"},
+		},
+		{
+			name:    "empty deps sets nothing",
+			deps:    []string{},
+		},
+		{
+			name:    "tool with npm sets npm and gcc",
+			deps:    []string{"gitnexus"},
+			wantNpm: true,
+			wantGCC: true,
+		},
+		{
+			name:    "invalid dep name returns error",
+			deps:    []string{"@invalid"},
+			wantErr: true,
+			errMsg:  "分析依赖",
+		},
+		{
+			name:    "empty dep string returns error",
+			deps:    []string{""},
+			wantErr: true,
+			errMsg:  "分析依赖",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			needs, err := analyzeRuntimeNeeds(tt.deps)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error but got nil")
+				}
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("error message = %q, want containing %q", err.Error(), tt.errMsg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if needs.needsNpm != tt.wantNpm {
+				t.Errorf("needsNpm = %v, want %v", needs.needsNpm, tt.wantNpm)
+			}
+			if needs.needsPip != tt.wantPip {
+				t.Errorf("needsPip = %v, want %v", needs.needsPip, tt.wantPip)
+			}
+			if needs.needsGCC != tt.wantGCC {
+				t.Errorf("needsGCC = %v, want %v", needs.needsGCC, tt.wantGCC)
+			}
+		})
+	}
+}
+
+// --- Generate tests for Debian family ---
+
+func TestGenerate_DebianFamily(t *testing.T) {
+	opts := Options{
+		BaseImage: "ubuntu:22.04",
+		Deps:      []string{},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "FROM ubuntu:22.04") {
+		t.Errorf("Expected FROM ubuntu:22.04")
+	}
+
+	if strings.Contains(dockerfile, "yum ") {
+		t.Error("Debian Dockerfile should not contain yum commands")
+	}
+
+	if !strings.Contains(dockerfile, "archive.ubuntu.com") {
+		t.Error("Debian Dockerfile should contain apt source configuration")
+	}
+
+	if !strings.Contains(dockerfile, "apt-get clean") {
+		t.Error("Debian Dockerfile cleanup should use apt-get clean")
+	}
+
+	if strings.Contains(dockerfile, "yum clean") {
+		t.Error("Debian Dockerfile should not contain yum clean")
+	}
+
+	if strings.Contains(dockerfile, "build-essential") {
+		t.Error("Debian Dockerfile should not have build-essential without npm deps")
+	}
+
+	// Should have CMD
+	if !strings.Contains(dockerfile, "CMD [\"/bin/bash\"]") {
+		t.Error("Missing CMD instruction")
+	}
+}
+
+func TestGenerate_DebianFamily_WithNpmOnly(t *testing.T) {
+	opts := Options{
+		BaseImage: "ubuntu:22.04",
+		Deps:      []string{"claude"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should install build-essential (needsGCC triggered by npm)
+	if !strings.Contains(dockerfile, "build-essential") {
+		t.Error("Debian Dockerfile with npm deps should install build-essential")
+	}
+	if strings.Contains(dockerfile, "gcc-c++") {
+		t.Error("Debian Dockerfile should not use gcc-c++ (RHEL package)")
+	}
+
+	// Should use deb.nodesource.com for npm
+	if !strings.Contains(dockerfile, "https://deb.nodesource.com/setup_22.x") {
+		t.Error("Debian Dockerfile should use deb.nodesource.com setup_22.x")
+	}
+	if strings.Contains(dockerfile, "https://rpm.nodesource.com/setup_16.x") {
+		t.Error("Debian Dockerfile should not use rpm.nodesource.com")
+	}
+
+	// Should install nodejs via apt
+	if !strings.Contains(dockerfile, "apt-get install -y nodejs") {
+		t.Error("Debian Dockerfile should install nodejs via apt")
+	}
+
+	// Should have npm mirror
+	if !strings.Contains(dockerfile, "npm_config_registry") {
+		t.Error("Debian Dockerfile should have npm mirror env var")
+	}
+
+	// Should NOT have pip-related content
+	if strings.Contains(dockerfile, "pip3") {
+		t.Error("Debian Dockerfile with only npm deps should not have pip content")
+	}
+
+	// Cleanup should include npm cache but not pip3 cache
+	if !strings.Contains(dockerfile, "npm cache clean") {
+		t.Error("Should include npm cache cleanup")
+	}
+	if strings.Contains(dockerfile, "pip3 cache purge") {
+		t.Error("Should not include pip3 cache cleanup")
+	}
+
+	// Install claude via npm
+	if !strings.Contains(dockerfile, "npm install -g @anthropic-ai/claude-code") {
+		t.Error("Should install claude via npm")
+	}
+}
+
+func TestGenerate_DebianFamily_WithPipOnly(t *testing.T) {
+	opts := Options{
+		BaseImage: "ubuntu:24.04",
+		Deps:      []string{"rtk"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should have pip runtime install via apt
+	if !strings.Contains(dockerfile, "apt-get install -y python3 python3-pip") {
+		t.Error("Should install python3-pip via apt-get")
+	}
+
+	// Should NOT have npm or gcc setup
+	if strings.Contains(dockerfile, "build-essential") {
+		t.Error("Should not install build-essential without npm deps")
+	}
+	if strings.Contains(dockerfile, "nodesource") {
+		t.Error("Should not have Node.js setup without npm deps")
+	}
+
+	// pip mirror via config set (Debian style)
+	if !strings.Contains(dockerfile, "pip3 config set global.index-url") {
+		t.Error("Should configure pip mirror via pip3 config set")
+	}
+	if strings.Contains(dockerfile, "PIP_INDEX_URL") {
+		t.Error("Debian should not use ENV for pip mirror (RHEL style)")
+	}
+
+	// Cleanup should include pip3 cache purge but not npm
+	if !strings.Contains(dockerfile, "pip3 cache purge") {
+		t.Error("Should include pip3 cache cleanup")
+	}
+	if strings.Contains(dockerfile, "npm cache clean") {
+		t.Error("Should not include npm cache cleanup")
+	}
+
+	// rtk install via pip3
+	if !strings.Contains(dockerfile, "pip3 install rtk") {
+		t.Error("Should install rtk via pip3")
+	}
+}
+
+func TestGenerate_DebianFamily_WithNpmAndPip(t *testing.T) {
+	opts := Options{
+		BaseImage: "debian:bookworm-slim",
+		Deps:      []string{"claude", "rtk"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "FROM debian:bookworm-slim") {
+		t.Error("FROM mismatch")
+	}
+	if strings.Contains(dockerfile, "yum ") {
+		t.Error("Debian Dockerfile should not contain yum")
+	}
+
+	// gcc section
+	if !strings.Contains(dockerfile, "build-essential") {
+		t.Error("Should install build-essential")
+	}
+
+	// npm runtime: deb.nodesource.com
+	if !strings.Contains(dockerfile, "deb.nodesource.com/setup_22.x") {
+		t.Error("Should use deb.nodesource.com setup_22.x")
+	}
+	if !strings.Contains(dockerfile, "apt-get install -y nodejs") {
+		t.Error("Should install nodejs via apt")
+	}
+	if !strings.Contains(dockerfile, "npm_config_registry") {
+		t.Error("Should have npm mirror")
+	}
+
+	// pip runtime: apt install + config set
+	if !strings.Contains(dockerfile, "apt-get install -y python3 python3-pip") {
+		t.Error("Should install python3-pip via apt")
+	}
+	if !strings.Contains(dockerfile, "pip3 config set global.index-url") {
+		t.Error("Should configure pip mirror via pip3 config set")
+	}
+
+	// Cleanup
+	if !strings.Contains(dockerfile, "apt-get clean") {
+		t.Error("Should use apt-get clean")
+	}
+	if !strings.Contains(dockerfile, "npm cache clean") {
+		t.Error("Should include npm cache cleanup")
+	}
+	if !strings.Contains(dockerfile, "pip3 cache purge") {
+		t.Error("Should include pip3 cache cleanup")
+	}
+}
+
+// --- Generate error paths ---
+
+func TestGenerate_Error_InvalidDepName(t *testing.T) {
+	opts := Options{
+		Deps: []string{"@invalid"},
+	}
+	_, err := Generate(opts)
+	if err == nil {
+		t.Fatal("expected error for invalid dep name, got nil")
+	}
+	if !strings.Contains(err.Error(), "分析依赖") {
+		t.Errorf("error should contain '分析依赖', got: %v", err)
+	}
+}
+
+func TestGenerate_Error_EmptyDepName(t *testing.T) {
+	opts := Options{
+		Deps: []string{""},
+	}
+	_, err := Generate(opts)
+	if err == nil {
+		t.Fatal("expected error for empty dep name, got nil")
+	}
+	if !strings.Contains(err.Error(), "分析依赖") {
+		t.Errorf("error should contain '分析依赖', got: %v", err)
+	}
+}
+
+// --- node dep skip when needsNpm is true ---
+
+func TestGenerate_SkipNodeDepWhenNeedsNpm(t *testing.T) {
+	// claude triggers needsNpm=true, node@20 should be skipped in install loop
+	opts := Options{
+		Deps: []string{"claude", "node@20"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should have skip comment for node@20
+	if !strings.Contains(dockerfile, "跳过（Node.js 已由运行时层安装）") {
+		t.Error("Expected node@20 dep to be skipped with runtime layer comment")
+	}
+}
+
+// --- GHProxy with actual github URLs in dep commands ---
+
+func TestGenerate_GHProxyWithGithubCommands(t *testing.T) {
+	// opencode has a github.com URL in its install commands
+	opts := Options{
+		Deps:    []string{"opencode"},
+		GHProxy: "https://ghproxy.example.com/",
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "GH_PROXY_URL=https://ghproxy.example.com/") {
+		t.Error("Missing GH_PROXY_URL env var")
+	}
+
+	// The github.com URL should be proxy-prefixed
+	if !strings.Contains(dockerfile, "https://ghproxy.example.com/https://github.com/") {
+		t.Error("github.com URL should be proxy-prefixed in RUN command")
+	}
+}
+
+// --- unknown dep (system pkg) adapted for Debian ---
+
+func TestGenerate_DebianWithSystemPkg(t *testing.T) {
+	opts := Options{
+		BaseImage: "ubuntu:22.04",
+		Deps:      []string{"some-unknown-pkg"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// yum install should be adapted to apt-get install for Debian
+	if !strings.Contains(dockerfile, "apt-get install -y some-unknown-pkg") {
+		t.Error("yum install for unknown pkg should be adapted to apt-get install on Debian")
+	}
+	if strings.Contains(dockerfile, "yum install -y some-unknown-pkg") {
+		t.Error("Original yum command should not appear on Debian")
+	}
+}
+
+// --- Debian with docker dep (known pkg name mapping) ---
+
+func TestGenerate_DebianWithDockerDep(t *testing.T) {
+	opts := Options{
+		BaseImage: "ubuntu:22.04",
+		Deps:      []string{"docker"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// docker is known dep - uses curl download, not yum install
+	// But its commands don't contain yum, so adaptCommandForFamily won't change them
+	// Verify docker commands are present
+	if !strings.Contains(dockerfile, "download.docker.com") {
+		t.Error("Docker dep should include download URL")
+	}
+}
+
+// --- RHEL-based Generate with system pkg (adaptCommandForFamily not triggered) ---
+
+func TestGenerate_RHELWithSystemPkg(t *testing.T) {
+	opts := Options{
+		Deps: []string{"some-rhel-pkg"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Default is centos:7, so yum should be used
+	if !strings.Contains(dockerfile, "yum install -y some-rhel-pkg") {
+		t.Error("RHEL Dockerfile should use yum install for unknown pkg")
+	}
+	if strings.Contains(dockerfile, "apt-get install -y some-rhel-pkg") {
+		t.Error("RHEL Dockerfile should not use apt-get")
+	}
+}
+
+// --- Unknown family defaults to RHEL behavior ---
+
+func TestGenerate_UnknownFamilyDefaultsToRHEL(t *testing.T) {
+	opts := Options{
+		BaseImage: "alpine:3.18",
+		Deps:      []string{},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "FROM alpine:3.18") {
+		t.Error("FROM mismatch")
+	}
+
+	// Unknown family defaults to RHEL-style yum setup
+	if !strings.Contains(dockerfile, "yum install -y epel-release") {
+		t.Error("Unknown family should default to RHEL-style yum setup")
+	}
+
+	// Cleanup should use yum
+	if !strings.Contains(dockerfile, "yum clean all") {
+		t.Error("Unknown family cleanup should use yum clean")
+	}
+	// Should use RHEL-style rm -rf /tmp/* (not /var/lib/apt/lists/*)
+	if strings.Contains(dockerfile, "/var/lib/apt/lists/*") {
+		t.Error("Unknown family cleanup should not use Debian paths")
+	}
+}
+
+// --- Verify cleanup section for RHEL with npm + pip ---
+
+func TestGenerate_RHEL_CleanupWithNpmAndPip(t *testing.T) {
+	opts := Options{
+		Deps: []string{"claude", "rtk"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should have npm cache clean
+	if !strings.Contains(dockerfile, "npm cache clean") {
+		t.Error("Should include npm cache cleanup")
+	}
+
+	// Should have pip3 cache purge
+	if !strings.Contains(dockerfile, "pip3 cache purge") {
+		t.Error("Should include pip3 cache cleanup")
+	}
+
+	// Should use yum clean for RHEL
+	if !strings.Contains(dockerfile, "yum clean all") {
+		t.Error("RHEL cleanup should use yum clean")
+	}
+}
+
+// --- Windows family tests ---
+
+func TestDetectImageFamily_Windows(t *testing.T) {
+	tests := []struct {
+		name      string
+		baseImage string
+	}{
+		{"nanoserver powershell", "mcr.microsoft.com/powershell:lts-nanoserver-1809"},
+		{"servercore", "mcr.microsoft.com/windows/servercore:ltsc2022"},
+		{"windows servercore full", "mcr.microsoft.com/powershell:lts-windowsservercore-1809"},
+		{"case insensitive", "Mcr.Microsoft.Com/Windows/ServerCore:ltsc2022"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectImageFamily(tt.baseImage)
+			if got != FamilyWindows {
+				t.Errorf("detectImageFamily(%q) = %v, want FamilyWindows", tt.baseImage, got)
+			}
+		})
+	}
+}
+
+func TestGenerate_WindowsNanoserver_EmptyDeps(t *testing.T) {
+	opts := Options{
+		BaseImage: "mcr.microsoft.com/powershell:lts-nanoserver-1809",
+		Deps:      []string{},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "FROM mcr.microsoft.com/powershell:lts-nanoserver-1809") {
+		t.Error("FROM mismatch")
+	}
+	if !strings.Contains(dockerfile, `SHELL ["powershell", "-Command"]`) {
+		t.Error("Windows Dockerfile should have SHELL powershell")
+	}
+	if !strings.Contains(dockerfile, "Invoke-WebRequest") {
+		t.Error("Windows Dockerfile should use Invoke-WebRequest")
+	}
+	if strings.Contains(dockerfile, "yum ") {
+		t.Error("Windows Dockerfile should not contain yum")
+	}
+	if strings.Contains(dockerfile, "apt-get") {
+		t.Error("Windows Dockerfile should not contain apt-get")
+	}
+	if strings.Contains(dockerfile, ".curlrc") {
+		t.Error("Windows Dockerfile should not have curl config")
+	}
+	if !strings.Contains(dockerfile, `CMD ["powershell"]`) {
+		t.Error("Windows Dockerfile should end with CMD powershell")
+	}
+	if strings.Contains(dockerfile, `CMD ["/bin/bash"]`) {
+		t.Error("Windows Dockerfile should not have bash CMD")
+	}
+}
+
+func TestGenerate_WindowsNanoserver_WithNpm(t *testing.T) {
+	opts := Options{
+		BaseImage: "mcr.microsoft.com/powershell:lts-nanoserver-1809",
+		Deps:      []string{"claude"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "node-v22.") {
+		t.Error("Windows Dockerfile should download Node.js MSI")
+	}
+	if !strings.Contains(dockerfile, "msiexec.exe") {
+		t.Error("Windows Dockerfile should use msiexec for Node.js install")
+	}
+	if !strings.Contains(dockerfile, "npm_config_registry") {
+		t.Error("Windows Dockerfile should have npm mirror")
+	}
+	if strings.Contains(dockerfile, "nodesource.com") {
+		t.Error("Windows Dockerfile should not use nodesource.com")
+	}
+	if strings.Contains(dockerfile, "build-essential") || strings.Contains(dockerfile, "gcc") {
+		t.Error("Windows Dockerfile should not install gcc")
+	}
+	if strings.Contains(dockerfile, "yum install") || strings.Contains(dockerfile, "apt-get install") {
+		t.Error("Windows Dockerfile should not use yum or apt-get")
+	}
+}
+
+func TestGenerate_WindowsNanoserver_WithPip(t *testing.T) {
+	opts := Options{
+		BaseImage: "mcr.microsoft.com/powershell:lts-nanoserver-1809",
+		Deps:      []string{"rtk"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "python-3.") {
+		t.Error("Windows Dockerfile should download Python installer")
+	}
+	if !strings.Contains(dockerfile, "PIP_INDEX_URL") {
+		t.Error("Windows Dockerfile should have pip mirror")
+	}
+	if strings.Contains(dockerfile, "apt-get install -y python3") {
+		t.Error("Windows should not use apt-get for python")
+	}
+}
+
+func TestGenerate_WindowsServerCore(t *testing.T) {
+	opts := Options{
+		BaseImage: "mcr.microsoft.com/windows/servercore:ltsc2022",
+		Deps:      []string{},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if !strings.Contains(dockerfile, "FROM mcr.microsoft.com/windows/servercore:ltsc2022") {
+		t.Error("FROM mismatch")
+	}
+	if !strings.Contains(dockerfile, `SHELL ["powershell", "-Command"]`) {
+		t.Error("ServerCore should also use PowerShell")
+	}
+}
+
+func TestAdaptCommandForFamily_Windows(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{
+			name: "curl translated to Invoke-WebRequest",
+			cmd:  "curl -fsSL https://example.com/tool.tar.gz -o /tmp/tool.tar.gz",
+			want: "Invoke-WebRequest -Uri https://example.com/tool.tar.gz -OutFile $env:TEMP\\tool.tar.gz",
+		},
+		{
+			name: "tar translated to Expand-Archive",
+			cmd:  "tar -xzf /tmp/foo.tar.gz",
+			want: "Expand-Archive -Path $env:TEMP\\foo.tar.gz",
+		},
+		{
+			name: "bash translated to powershell",
+			cmd:  "bash /tmp/setup.sh",
+			want: "powershell -File $env:TEMP\\setup.sh",
+		},
+		{
+			name: "chmod skipped",
+			cmd:  "chmod +x /usr/local/bin/tool",
+			want: "Write-Host 'skip chmod: C:\\ProgramData\\bin/tool'",
+		},
+		{
+			name: "npm unchanged",
+			cmd:  "npm install -g some-package",
+			want: "npm install -g some-package",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := adaptCommandForFamily(tt.cmd, FamilyWindows)
+			if got != tt.want {
+				t.Errorf("adaptCommandForFamily(%q, FamilyWindows) = %q, want %q", tt.cmd, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWriteWindowsSetup(t *testing.T) {
+	var sb strings.Builder
+	writeWindowsSetup(&sb)
+	output := sb.String()
+
+	if !strings.Contains(output, `SHELL ["powershell", "-Command"]`) {
+		t.Error("Windows setup should set SHELL to powershell")
+	}
+	if !strings.Contains(output, "Invoke-WebRequest") {
+		t.Error("Windows setup should use Invoke-WebRequest for Git")
+	}
+	if !strings.Contains(output, "git-for-windows") {
+		t.Error("Windows setup should install Git for Windows")
+	}
+}

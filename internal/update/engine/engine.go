@@ -11,11 +11,27 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // defaultUpdateURL 是默认的更新 URL。
 // 可通过 UPDATE_URL 环境变量覆盖。
 const defaultUpdateURL = "https://github.com/agent-forge/cli/releases/latest/download/agent-forge-linux-amd64"
+const defaultUpdateURLWindows = "https://github.com/agent-forge/cli/releases/latest/download/agent-forge-windows-amd64.exe"
+
+// getDefaultUpdateURL 根据运行时 OS 返回默认更新 URL。
+func getDefaultUpdateURL() string {
+	if runtime.GOOS == "windows" {
+		if url := os.Getenv("UPDATE_URL"); url != "" {
+			return url
+		}
+		return defaultUpdateURLWindows
+	}
+	if url := os.Getenv("UPDATE_URL"); url != "" {
+		return url
+	}
+	return defaultUpdateURL
+}
 
 // SelfUpdateEngine 是自更新引擎。
 type SelfUpdateEngine struct {
@@ -74,7 +90,7 @@ func WithRename(fn func(oldpath, newpath string) error) Option {
 // opts 是可选配置参数，用于测试时 mock 依赖。
 func New(opts ...Option) *SelfUpdateEngine {
 	e := &SelfUpdateEngine{
-		updateURL: defaultUpdateURL,
+		updateURL: getDefaultUpdateURL(),
 		httpClient: &http.Client{},
 		osRename: os.Rename,
 		osStat: os.Stat,
