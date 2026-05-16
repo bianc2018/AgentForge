@@ -1,8 +1,4 @@
-## Purpose
-
-定义 `agent-forge build` 命令的核心行为——参数解析、Docker 镜像构建、错误处理。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Build command executes Docker image build
 

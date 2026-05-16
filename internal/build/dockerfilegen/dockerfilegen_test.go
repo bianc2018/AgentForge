@@ -1132,3 +1132,58 @@ func TestWriteWindowsSetup(t *testing.T) {
 		t.Error("Windows setup should install Git for Windows")
 	}
 }
+
+// --- applyGHProxy edge cases ---
+
+func TestApplyGHProxy_NoTrailingSlash(t *testing.T) {
+	cmds := []string{
+		"curl -fsSL https://github.com/foo/bar/releases/download/v1.0/app -o /usr/local/bin/app",
+	}
+	proxy := "https://ghproxy.example.com" // 无尾部斜杠
+	got := applyGHProxy(cmds, proxy)
+
+	wantPrefix := "https://ghproxy.example.com/https://github.com/"
+	if !strings.Contains(got[0], wantPrefix) {
+		t.Errorf("无尾部斜杠应正确拼接，got: %q, want prefix: %q", got[0], wantPrefix)
+	}
+	// 不应出现双写斜杠
+	if strings.Contains(got[0], "ghproxy.example.com//") {
+		t.Error("不应出现双斜杠")
+	}
+}
+
+func TestApplyGHProxy_TrailingSlash(t *testing.T) {
+	cmds := []string{
+		"curl -fsSL https://github.com/foo/bar/releases/download/v1.0/app -o /usr/local/bin/app",
+	}
+	proxy := "https://ghproxy.example.com/" // 有尾部斜杠
+	got := applyGHProxy(cmds, proxy)
+
+	wantPrefix := "https://ghproxy.example.com/https://github.com/"
+	if !strings.Contains(got[0], wantPrefix) {
+		t.Errorf("有尾部斜杠不应双写，got: %q, want prefix: %q", got[0], wantPrefix)
+	}
+	// 不应出现双斜杠
+	if strings.Contains(got[0], "ghproxy.example.com//") {
+		t.Error("不应出现双斜杠")
+	}
+}
+
+func TestGenerate_DefaultGHProxy(t *testing.T) {
+	// 不传 GHProxy（空 Options），验证不含代理配置
+	opts := Options{
+		Deps: []string{"opencode"},
+	}
+	dockerfile, err := Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if strings.Contains(dockerfile, "GH_PROXY_URL") {
+		t.Error("未设置 GHProxy 时不应出现 GH_PROXY_URL 环境变量")
+	}
+	// opencode 的 github.com URL 应保持原样（不被代理包装）
+	if !strings.Contains(dockerfile, "https://github.com/opencode-ai/") {
+		t.Error("未设置 GHProxy 时 github.com URL 应保持原样")
+	}
+}

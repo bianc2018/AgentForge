@@ -62,5 +62,5 @@ func init() {
 	buildCmd.Flags().Bool("no-cache", false, "强制跳过 Docker 缓存")
 	buildCmd.Flags().BoolP("rebuild", "R", false, "重建模式：使用临时标签构建，成功后替换原标签")
 	buildCmd.Flags().Int("max-retry", 3, "网络错误时的最大重试次数")
-	buildCmd.Flags().String("gh-proxy", "", "GitHub 代理 URL")
+	buildCmd.Flags().String("gh-proxy", "https://ghproxy.net", "GitHub 代理 URL（传空字符串禁用）")
 }

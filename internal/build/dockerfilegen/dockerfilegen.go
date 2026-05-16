@@ -427,9 +427,10 @@ func applyGHProxy(commands []string, ghProxy string) []string {
 		return commands
 	}
 
+	normalized := strings.TrimRight(ghProxy, "/") + "/"
 	result := make([]string, len(commands))
 	for i, cmd := range commands {
-		cmd = strings.ReplaceAll(cmd, "https://github.com/", ghProxy+"https://github.com/")
+		cmd = strings.ReplaceAll(cmd, "https://github.com/", normalized+"https://github.com/")
 		result[i] = cmd
 	}
 	return result

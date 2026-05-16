@@ -30,7 +30,7 @@ type BuildParams struct {
 	MaxRetry int
 
 	// GHProxy 是 --gh-proxy 参数，指定 GitHub 代理 URL。
-	// 空字符串表示不使用代理。
+	// 默认值 "https://ghproxy.net"，传空字符串表示不使用代理。
 	GHProxy string
 }
 
@@ -39,6 +39,7 @@ func DefaultBuildParams() BuildParams {
 	return BuildParams{
 		BaseImage: "docker.1ms.run/centos:7",
 		MaxRetry:  3,
+		GHProxy:   "https://ghproxy.net",
 	}
 }
 

@@ -411,6 +411,9 @@ func TestParseBuild_NilAndEmptyArgs(t *testing.T) {
 	if params2.MaxRetry != 3 {
 		t.Errorf("MaxRetry = %d, want 3", params2.MaxRetry)
 	}
+	if params2.GHProxy != "https://ghproxy.net" {
+		t.Errorf("GHProxy = %q, want default %q", params2.GHProxy, "https://ghproxy.net")
+	}
 }
 
 func TestParseBuild_MaxRetryZero(t *testing.T) {
