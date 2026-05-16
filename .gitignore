@@ -11,3 +11,13 @@ dist/
 *.test
 *.out
 /agent-forge
+
+# Claude Code
+.claude/settings.json
+
+# Editor temp files
+.gsf-save-*
+
+# Runtime config and logs
+coding-config/
+cmd/coding-config/
