@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/agent-forge/cli/internal/doctor/packagemanager"
 )
 
 // mockHelper 实现一个可 mock 的 Docker helper
@@ -204,5 +206,113 @@ func TestDiagnose_AllPassed(t *testing.T) {
 		if issue.Type != IssueAllPassed {
 			t.Errorf("不应有非通过的 issue: %+v", issue)
 		}
+	}
+}
+
+// --- Option 函数与默认 socketStat 路径 (UT-18 扩展) ---
+
+func TestOptionFunctions(t *testing.T) {
+	execCalled := false
+	detectCalled := false
+	installCalled := false
+
+	// 使用真实的 Option 函数，而非直接字段赋值，以覆盖 WithExecFunc / WithDetectPM / WithInstallPM
+	engine := New(nil,
+		WithExecFunc(func(name string, args ...string) error {
+			execCalled = true
+			return nil
+		}),
+		WithDetectPM(func() (*packagemanager.Manager, error) {
+			detectCalled = true
+			return nil, errors.New("no package manager")
+		}),
+		WithInstallPM(func(pm *packagemanager.Manager, pkg string) (string, error) {
+			installCalled = true
+			return "installed", nil
+		}),
+		WithSocketPath("/nonexistent/option-test-socket"),
+	)
+
+	// 不覆盖 engine.socketStat，验证默认 os.Stat 实现
+	if err := engine.socketStat("/nonexistent/option-test-socket"); err == nil {
+		t.Error("默认 socketStat 在不存在的路径上应返回错误")
+	}
+
+	// 验证 WithExecFunc 设置的函数可用
+	if err := engine.execFunc("echo", "hello"); err != nil {
+		t.Errorf("execFunc 应返回 nil: %v", err)
+	}
+	if !execCalled {
+		t.Error("WithExecFunc 设置的 execFunc 未被调用")
+	}
+
+	// 验证 WithDetectPM 设置的函数可用
+	_, err := engine.detectPM()
+	if err == nil {
+		t.Error("WithDetectPM 应返回错误")
+	}
+	if !detectCalled {
+		t.Error("WithDetectPM 未被调用")
+	}
+
+	// 验证 WithInstallPM 设置的函数可用
+	out, err := engine.installPM(nil, "docker")
+	if err != nil {
+		t.Errorf("WithInstallPM 应返回 nil: %v", err)
+	}
+	if out != "installed" {
+		t.Errorf("WithInstallPM 应返回 'installed', got %q", out)
+	}
+	if !installCalled {
+		t.Error("WithInstallPM 未被调用")
+	}
+}
+
+// --- Ping 成功但 Info 失败路径 (UT-18 扩展) ---
+
+func TestDiagnose_PingOKButInfoFails(t *testing.T) {
+	tests := []struct {
+		name    string
+		infoErr error
+	}{
+		{"Info返回具体错误", errors.New("unable to connect to daemon")},
+		{"Info返回空错误", errors.New("")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := New(&mockHelper{infoErr: tt.infoErr},
+				WithSocketPath("/tmp/diag-info-fake"),
+			)
+			engine.socketStat = func(path string) error { return nil }
+			engine.execFunc = func(name string, args ...string) error { return nil }
+
+			diag, err := engine.Diagnose(context.Background())
+			if err != nil {
+				t.Fatalf("Diagnose() 返回错误: %v", err)
+			}
+
+			if !diag.CorePassed {
+				t.Error("CorePassed 应为 true")
+			}
+			if !diag.RuntimePassed {
+				t.Error("Ping 成功时 RuntimePassed 应为 true")
+			}
+			if !diag.OptionalPassed {
+				t.Error("OptionalPassed 应为 true")
+			}
+
+			// 虽然 RuntimePassed=true，但 Info 失败应记录一条额外 issue
+			found := false
+			for _, issue := range diag.Issues {
+				if issue.Type == IssueRuntimeError &&
+					contains(issue.Message, "获取 Docker 信息失败") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Error("应包含获取 Docker 信息失败的 issue")
+			}
+		})
 	}
 }

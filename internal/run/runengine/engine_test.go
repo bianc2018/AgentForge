@@ -300,22 +300,27 @@ func TestAssembleContainerConfig_ReadOnlyMount(t *testing.T) {
 
 	_, hostConfig, _ := AssembleContainerConfig(params, "")
 
-	if len(hostConfig.Mounts) != 1 {
-		t.Fatalf("len(Mounts) = %d, want 1", len(hostConfig.Mounts))
+	// 应包含 -m 只读挂载 + 工作目录自动挂载（来自 os.Getwd()）
+	if len(hostConfig.Mounts) < 1 {
+		t.Fatalf("len(Mounts) = %d, want >= 1", len(hostConfig.Mounts))
 	}
 
-	m := hostConfig.Mounts[0]
-	if m.Type != mount.TypeBind {
-		t.Errorf("Mount.Type = %q, want %q", m.Type, mount.TypeBind)
+	// 查找 -m 指定的只读挂载
+	var roMount *mount.Mount
+	for i := range hostConfig.Mounts {
+		if hostConfig.Mounts[i].Source == "/host/data" && hostConfig.Mounts[i].Target == "/host/data" {
+			roMount = &hostConfig.Mounts[i]
+			break
+		}
 	}
-	if m.Source != "/host/data" {
-		t.Errorf("Mount.Source = %q, want %q", m.Source, "/host/data")
+	if roMount == nil {
+		t.Fatal("-m /host/data mount not found in Mounts")
 	}
-	if m.Target != "/host/data" {
-		t.Errorf("Mount.Target = %q, want %q", m.Target, "/host/data")
+	if roMount.Type != mount.TypeBind {
+		t.Errorf("Mount.Type = %q, want %q", roMount.Type, mount.TypeBind)
 	}
-	if !m.ReadOnly {
-		t.Error("Mount.ReadOnly = false, want true")
+	if !roMount.ReadOnly {
+		t.Error("Mount.ReadOnly = false, want true for -m mount")
 	}
 }
 
@@ -329,14 +334,19 @@ func TestAssembleContainerConfig_EnvironmentVariables(t *testing.T) {
 
 	config, _, _ := AssembleContainerConfig(params, "")
 
-	if len(config.Env) != 2 {
-		t.Fatalf("len(Env) = %d, want 2", len(config.Env))
+	// 应包含 2 个用户指定的 env + 自动注入的 TERM
+	if len(config.Env) != 3 {
+		t.Fatalf("len(Env) = %d, want 3 (2 user + TERM)", len(config.Env))
 	}
 	if config.Env[0] != "OPENAI_KEY=sk-xxx" {
 		t.Errorf("Env[0] = %q, want %q", config.Env[0], "OPENAI_KEY=sk-xxx")
 	}
 	if config.Env[1] != "DEBUG=true" {
 		t.Errorf("Env[1] = %q, want %q", config.Env[1], "DEBUG=true")
+	}
+	// TERM 自动注入（用户未显式设置）
+	if config.Env[2] != "TERM=xterm-256color" {
+		t.Errorf("Env[2] = %q, want %q", config.Env[2], "TERM=xterm-256color")
 	}
 }
 
@@ -369,20 +379,24 @@ func TestAssembleContainerConfig_MultiPortAndMount(t *testing.T) {
 	if len(hostConfig.PortBindings) != 3 {
 		t.Errorf("len(PortBindings) = %d, want 3", len(hostConfig.PortBindings))
 	}
-	if len(hostConfig.Mounts) != 3 {
-		t.Errorf("len(Mounts) = %d, want 3", len(hostConfig.Mounts))
+	// 应包含 3 个 -m 挂载 + 工作目录自动挂载
+	if len(hostConfig.Mounts) < 3 {
+		t.Errorf("len(Mounts) = %d, want >= 3", len(hostConfig.Mounts))
 	}
 	if len(config.ExposedPorts) != 3 {
 		t.Errorf("len(ExposedPorts) = %d, want 3", len(config.ExposedPorts))
 	}
 
-	// 验证所有挂载均为只读
-	for i, m := range hostConfig.Mounts {
-		if !m.ReadOnly {
-			t.Errorf("Mount[%d].ReadOnly = false, want true", i)
+	// 验证 -m 指定的挂载均为只读
+	roPaths := map[string]bool{"/data": true, "/config": true, "/logs": true}
+	for _, m := range hostConfig.Mounts {
+		if roPaths[m.Source] {
+			if !m.ReadOnly {
+				t.Errorf("Mount %q.ReadOnly = false, want true for -m mount", m.Source)
+			}
 		}
 		if m.Type != mount.TypeBind {
-			t.Errorf("Mount[%d].Type = %q, want %q", i, m.Type, mount.TypeBind)
+			t.Errorf("Mount %q.Type = %q, want %q", m.Source, m.Type, mount.TypeBind)
 		}
 	}
 }
@@ -429,14 +443,16 @@ func TestAssembleContainerConfig_EmptyParams(t *testing.T) {
 	if len(config.Cmd) != 1 || config.Cmd[0] != "bash" {
 		t.Errorf("Cmd = %v, want [bash]", config.Cmd)
 	}
-	if len(config.Env) != 0 {
-		t.Errorf("Env = %v, want empty", config.Env)
+	// 空参数时自动注入 TERM，自动检测工作目录和挂载
+	if len(config.Env) != 1 || config.Env[0] != "TERM=xterm-256color" {
+		t.Errorf("Env = %v, want [TERM=xterm-256color]", config.Env)
 	}
-	if config.WorkingDir != "" {
-		t.Errorf("WorkingDir = %q, want empty", config.WorkingDir)
+	if config.WorkingDir == "" {
+		t.Error("WorkingDir should not be empty (auto-detected from os.Getwd())")
 	}
-	if len(hostConfig.Mounts) != 0 {
-		t.Errorf("Mounts = %v, want empty", hostConfig.Mounts)
+	// 工作目录来自 os.Getwd()，应至少有一个 rw 挂载
+	if len(hostConfig.Mounts) < 1 {
+		t.Error("Mounts should have at least the workdir auto-mount")
 	}
 	if len(hostConfig.PortBindings) != 0 {
 		t.Errorf("PortBindings = %v, want empty", hostConfig.PortBindings)

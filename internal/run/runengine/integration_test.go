@@ -65,16 +65,19 @@ func setupDockerTest(t *testing.T) (*dockerhelper.Client, context.Context, func(
 			}
 		}
 
-		// 标记为 agent-forge:latest
-		tagCmd := exec.CommandContext(ctx, "docker", "tag", testImageName, ImageName)
-		if output, err := tagCmd.CombinedOutput(); err != nil {
-			// 尝试使用 SDK 的 ImageTag
-			if err := helper.ImageTag(ctx, testImageName, ImageName); err != nil {
-				cancel()
-				helper.Close()
-				t.Skipf("无法标记测试镜像 %s -> %s: %v, output: %s",
-					testImageName, ImageName, err, output)
-			}
+		// 标记为 agent-forge:latest（优先使用 SDK，可靠性高于 docker CLI）
+		if err := helper.ImageTag(ctx, testImageName, ImageName); err != nil {
+			cancel()
+			helper.Close()
+			t.Skipf("无法标记测试镜像 %s -> %s: %v", testImageName, ImageName, err)
+		}
+
+		// 验证标签已创建
+		verifyExists, verifyErr := helper.ImageExists(ctx, ImageName)
+		if verifyErr != nil || !verifyExists {
+			cancel()
+			helper.Close()
+			t.Skipf("标记后验证失败: ImageExists(%q) = (%v, %v)", ImageName, verifyExists, verifyErr)
 		}
 	}
 

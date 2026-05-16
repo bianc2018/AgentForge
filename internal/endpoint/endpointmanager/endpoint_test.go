@@ -2,6 +2,7 @@ package endpointmanager
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -633,5 +634,870 @@ func TestEndpoint_EmptyURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "URL 为空") {
 		t.Errorf("错误信息应包含'URL 为空'，got: %v", err)
+	}
+}
+
+// --- fieldValue 全量测试 ---
+
+func TestFieldValue_AllKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		cfg  *EndpointConfig
+		want string
+	}{
+		{"PROVIDER", "PROVIDER", &EndpointConfig{Provider: "p"}, "p"},
+		{"URL", "URL", &EndpointConfig{URL: "u"}, "u"},
+		{"KEY", "KEY", &EndpointConfig{Key: "k"}, "k"},
+		{"MODEL", "MODEL", &EndpointConfig{Model: "m"}, "m"},
+		{"MODEL_OPUS", "MODEL_OPUS", &EndpointConfig{ModelOpus: "mo"}, "mo"},
+		{"MODEL_SONNET", "MODEL_SONNET", &EndpointConfig{ModelSonnet: "ms"}, "ms"},
+		{"MODEL_HAIKU", "MODEL_HAIKU", &EndpointConfig{ModelHaiku: "mh"}, "mh"},
+		{"MODEL_SUBAGENT", "MODEL_SUBAGENT", &EndpointConfig{ModelSubagent: "msub"}, "msub"},
+		{"unknown key returns empty", "UNKNOWN", &EndpointConfig{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fieldValue(tt.cfg, tt.key)
+			if got != tt.want {
+				t.Errorf("fieldValue(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- MaskKey 极限短 key ---
+
+func TestMaskKey_VeryShortKey(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want string
+	}{
+		{"length 1", "a", "a***a"},
+		{"length 2", "ab", "a***b"},
+		{"length 3", "abc", "a***c"},
+		{"length 4", "abcd", "a***d"},
+		{"length 5", "abcde", "a***e"},
+		{"length 6", "abcdef", "ab***ef"},
+		{"length 8", "abcdefgh", "ab***gh"},
+		{"length 11", "abcdefghijk", "abc***ijk"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MaskKey(tt.key)
+			if got != tt.want {
+				t.Errorf("MaskKey(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- ParseEndpointEnv 更多边界 ---
+
+func TestParseEndpointEnv_CommentLines(t *testing.T) {
+	content := `# This is a comment line
+PROVIDER=openai
+# another comment
+URL=https://api.openai.com
+KEY=sk-key
+MODEL=gpt-4
+`
+	cfg, err := ParseEndpointEnv(content)
+	if err != nil {
+		t.Fatalf("ParseEndpointEnv 返回错误: %v", err)
+	}
+	if cfg.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", cfg.Provider, "openai")
+	}
+	if cfg.URL != "https://api.openai.com" {
+		t.Errorf("URL = %q, want %q", cfg.URL, "https://api.openai.com")
+	}
+	if cfg.Key != "sk-key" {
+		t.Errorf("Key = %q, want %q", cfg.Key, "sk-key")
+	}
+	if cfg.Model != "gpt-4" {
+		t.Errorf("Model = %q, want %q", cfg.Model, "gpt-4")
+	}
+}
+
+func TestParseEndpointEnv_EmptyKeyLine(t *testing.T) {
+	content := `=orphan-value
+PROVIDER=openai
+=another-orphan
+URL=https://api.openai.com
+KEY=sk-key
+`
+	cfg, err := ParseEndpointEnv(content)
+	if err != nil {
+		t.Fatalf("ParseEndpointEnv 返回错误: %v", err)
+	}
+	if cfg.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", cfg.Provider, "openai")
+	}
+	if cfg.URL != "https://api.openai.com" {
+		t.Errorf("URL = %q, want %q", cfg.URL, "https://api.openai.com")
+	}
+	if cfg.Key != "sk-key" {
+		t.Errorf("Key = %q, want %q", cfg.Key, "sk-key")
+	}
+}
+
+func TestParseEndpointEnv_LineWhitespace(t *testing.T) {
+	content := `  PROVIDER  =  openai
+URL=https://api.openai.com
+  KEY=sk-key
+`
+	cfg, err := ParseEndpointEnv(content)
+	if err != nil {
+		t.Fatalf("ParseEndpointEnv 返回错误: %v", err)
+	}
+	if cfg.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", cfg.Provider, "openai")
+	}
+	if cfg.URL != "https://api.openai.com" {
+		t.Errorf("URL = %q, want %q", cfg.URL, "https://api.openai.com")
+	}
+	if cfg.Key != "sk-key" {
+		t.Errorf("Key = %q, want %q", cfg.Key, "sk-key")
+	}
+}
+
+func TestParseEndpointEnv_UnknownKeys(t *testing.T) {
+	content := `PROVIDER=deepseek
+URL=https://api.deepseek.com
+KEY=sk-ds-key
+MODEL=deepseek-chat
+UNKNOWN_KEY=some_value
+ANOTHER_UNKNOWN=another_value
+`
+	cfg, err := ParseEndpointEnv(content)
+	if err != nil {
+		t.Fatalf("ParseEndpointEnv 返回错误: %v", err)
+	}
+	if cfg.Provider != "deepseek" {
+		t.Errorf("Provider = %q, want %q", cfg.Provider, "deepseek")
+	}
+	if cfg.URL != "https://api.deepseek.com" {
+		t.Errorf("URL = %q, want %q", cfg.URL, "https://api.deepseek.com")
+	}
+	if cfg.Model != "deepseek-chat" {
+		t.Errorf("Model = %q, want %q", cfg.Model, "deepseek-chat")
+	}
+}
+
+func TestParseEndpointEnv_ScannerError(t *testing.T) {
+	longLine := strings.Repeat("A", 64*1024+1)
+	_, err := ParseEndpointEnv(longLine)
+	if err == nil {
+		t.Fatal("超长行应触发 scanner 错误")
+	}
+}
+
+// --- ReadEndpointConfig 非 NotExist 错误 ---
+
+func TestReadEndpointConfig_PathIsFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "not-a-dir")
+	if err := os.WriteFile(filePath, []byte("content"), 0644); err != nil {
+		t.Fatalf("创建文件失败: %v", err)
+	}
+
+	_, err := ReadEndpointConfig(filePath)
+	if err == nil {
+		t.Fatal("以文件路径作为目录读取应返回错误")
+	}
+	if strings.Contains(err.Error(), "不存在") {
+		t.Errorf("错误不应是'不存在'，got: %v", err)
+	}
+}
+
+// --- UpdateEndpointConfig 全量 ---
+
+func TestUpdateEndpointConfig_AllFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-all-update")
+
+	orig := &EndpointConfig{
+		Provider:      "openai",
+		URL:           "https://api.openai.com",
+		Key:           "sk-original",
+		Model:         "gpt-4",
+		ModelOpus:     "gpt-4-32k",
+		ModelSonnet:   "gpt-4-turbo",
+		ModelHaiku:    "gpt-3.5-turbo",
+		ModelSubagent: "gpt-3.5-turbo",
+	}
+	if err := WriteEndpointConfig(endpointDir, orig); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	updates := &EndpointConfig{
+		Provider:      "anthropic",
+		URL:           "https://api.anthropic.com",
+		Key:           "sk-new",
+		Model:         "claude-3-opus",
+		ModelOpus:     "claude-3-opus-20240229",
+		ModelSonnet:   "claude-3-sonnet-20240229",
+		ModelHaiku:    "claude-3-haiku-20240307",
+		ModelSubagent: "claude-3-haiku-20240307",
+	}
+	if err := UpdateEndpointConfig(endpointDir, updates); err != nil {
+		t.Fatalf("UpdateEndpointConfig 失败: %v", err)
+	}
+
+	cfg, err := ReadEndpointConfig(endpointDir)
+	if err != nil {
+		t.Fatalf("ReadEndpointConfig 失败: %v", err)
+	}
+	if cfg.Provider != "anthropic" {
+		t.Errorf("Provider = %q, want %q", cfg.Provider, "anthropic")
+	}
+	if cfg.URL != "https://api.anthropic.com" {
+		t.Errorf("URL = %q, want %q", cfg.URL, "https://api.anthropic.com")
+	}
+	if cfg.Key != "sk-new" {
+		t.Errorf("Key = %q, want %q", cfg.Key, "sk-new")
+	}
+	if cfg.Model != "claude-3-opus" {
+		t.Errorf("Model = %q, want %q", cfg.Model, "claude-3-opus")
+	}
+	if cfg.ModelOpus != "claude-3-opus-20240229" {
+		t.Errorf("ModelOpus = %q, want %q", cfg.ModelOpus, "claude-3-opus-20240229")
+	}
+	if cfg.ModelSonnet != "claude-3-sonnet-20240229" {
+		t.Errorf("ModelSonnet = %q, want %q", cfg.ModelSonnet, "claude-3-sonnet-20240229")
+	}
+	if cfg.ModelHaiku != "claude-3-haiku-20240307" {
+		t.Errorf("ModelHaiku = %q, want %q", cfg.ModelHaiku, "claude-3-haiku-20240307")
+	}
+	if cfg.ModelSubagent != "claude-3-haiku-20240307" {
+		t.Errorf("ModelSubagent = %q, want %q", cfg.ModelSubagent, "claude-3-haiku-20240307")
+	}
+}
+
+func TestUpdateEndpointConfig_EmptyUpdates(t *testing.T) {
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-empty-update")
+
+	orig := &EndpointConfig{
+		Provider: "openai",
+		URL:      "https://api.openai.com",
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, orig); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	if err := UpdateEndpointConfig(endpointDir, &EndpointConfig{}); err != nil {
+		t.Fatalf("UpdateEndpointConfig 空更新失败: %v", err)
+	}
+
+	cfg, err := ReadEndpointConfig(endpointDir)
+	if err != nil {
+		t.Fatalf("ReadEndpointConfig 失败: %v", err)
+	}
+	if cfg.Provider != "openai" {
+		t.Errorf("Provider 不应被修改，got %q", cfg.Provider)
+	}
+	if cfg.URL != "https://api.openai.com" {
+		t.Errorf("URL 不应被修改，got %q", cfg.URL)
+	}
+	if cfg.Key != "sk-key" {
+		t.Errorf("Key 不应被修改，got %q", cfg.Key)
+	}
+	if cfg.Model != "gpt-4" {
+		t.Errorf("Model 不应被修改，got %q", cfg.Model)
+	}
+}
+
+func TestUpdateEndpointConfig_WriteError(t *testing.T) {
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-write-error")
+
+	orig := &EndpointConfig{
+		Provider: "openai",
+		URL:      "https://api.openai.com",
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, orig); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	filePath := filepath.Join(endpointDir, EndpointEnvFilename)
+	if err := os.Chmod(filePath, 0444); err != nil {
+		t.Fatalf("Chmod 失败: %v", err)
+	}
+
+	err := UpdateEndpointConfig(endpointDir, &EndpointConfig{Model: "gpt-5"})
+	if err == nil {
+		t.Fatal("只读文件写回应返回错误")
+	}
+	if !strings.Contains(err.Error(), "写回失败") {
+		t.Errorf("错误信息应包含'写回失败'，got: %v", err)
+	}
+}
+
+// --- isTimeoutError ---
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+
+type nonTimeoutErr struct{}
+
+func (nonTimeoutErr) Error() string { return "error" }
+func (nonTimeoutErr) Timeout() bool { return false }
+
+type timeoutStrErr struct{}
+
+func (timeoutStrErr) Error() string { return "connection timeout" }
+
+type deadlineExceededErr struct{}
+
+func (deadlineExceededErr) Error() string { return "deadline exceeded" }
+
+func TestIsTimeoutError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"timeout interface returns true", timeoutErr{}, true},
+		{"timeout interface returns false", nonTimeoutErr{}, false},
+		{"string contains 'timeout'", timeoutStrErr{}, true},
+		{"string contains 'deadline exceeded'", deadlineExceededErr{}, true},
+		{"normal error", fmt.Errorf("normal error"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTimeoutError(tt.err)
+			if got != tt.want {
+				t.Errorf("isTimeoutError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- TestEndpoint 更多覆盖 ---
+
+func TestEndpoint_EmptyKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-no-key")
+
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      "https://api.openai.com",
+		Key:      "",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	_, err := TestEndpoint(endpointDir)
+	if err == nil {
+		t.Fatal("空 Key 时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "API key 为空") {
+		t.Errorf("错误信息应包含'API key 为空'，got: %v", err)
+	}
+}
+
+func TestEndpoint_Forbidden(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error": "forbidden"}`))
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-forbidden")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-invalid-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	_, err := TestEndpoint(endpointDir)
+	if err == nil {
+		t.Fatal("403 时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "认证失败") {
+		t.Errorf("错误信息应包含'认证失败'，got: %v", err)
+	}
+}
+
+func TestEndpoint_NonOKStatus(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "internal server error"}`))
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-500")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	_, err := TestEndpoint(endpointDir)
+	if err == nil {
+		t.Fatal("500 时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "HTTP 500") {
+		t.Errorf("错误信息应包含'HTTP 500'，got: %v", err)
+	}
+}
+
+func TestEndpoint_InvalidJSON(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`this is not valid json`))
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-bad-json")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	_, err := TestEndpoint(endpointDir)
+	if err == nil {
+		t.Fatal("无效 JSON 时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "解析响应") {
+		t.Errorf("错误信息应包含'解析响应'，got: %v", err)
+	}
+}
+
+func TestEndpoint_NoChoices(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := chatCompletionResponse{
+			ID:     "chatcmpl-test",
+			Object: "chat.completion",
+			Model:  "gpt-4",
+			Choices: []struct {
+				Index   int `json:"index"`
+				Message struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				} `json:"message"`
+			}{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-no-choices")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	result, err := TestEndpoint(endpointDir)
+	if err != nil {
+		t.Fatalf("TestEndpoint 不应返回错误: %v", err)
+	}
+	if result.ResponsePreview != "" {
+		t.Errorf("无 choices 时应返回空预览，got %q", result.ResponsePreview)
+	}
+}
+
+func TestEndpoint_LongResponsePreview(t *testing.T) {
+	longContent := strings.Repeat("This is a test response that will be long. ", 10)
+	if len(longContent) <= 120 {
+		t.Fatal("测试数据应超过 120 字符")
+	}
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := chatCompletionResponse{
+			Model: "gpt-4",
+			Choices: []struct {
+				Index   int `json:"index"`
+				Message struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				} `json:"message"`
+			}{
+				{
+					Index: 0,
+					Message: struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					}{
+						Role:    "assistant",
+						Content: longContent,
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-long-preview")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	result, err := TestEndpoint(endpointDir)
+	if err != nil {
+		t.Fatalf("TestEndpoint 不应返回错误: %v", err)
+	}
+	if !strings.HasSuffix(result.ResponsePreview, "...") {
+		t.Errorf("长响应预览应以 ... 结尾，got %q", result.ResponsePreview)
+	}
+	if len(result.ResponsePreview) > 123 {
+		t.Errorf("预览不应超过 123 字符，got %d", len(result.ResponsePreview))
+	}
+}
+
+func TestEndpoint_EmptyResponseModel(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := chatCompletionResponse{
+			Model: "",
+			Choices: []struct {
+				Index   int `json:"index"`
+				Message struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				} `json:"message"`
+			}{
+				{
+					Index: 0,
+					Message: struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					}{
+						Role:    "assistant",
+						Content: "Hello!",
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	endpointDir := filepath.Join(tmpDir, "ep-empty-resp-model")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-key",
+		Model:    "configured-model",
+	}
+	if err := WriteEndpointConfig(endpointDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	result, err := TestEndpoint(endpointDir)
+	if err != nil {
+		t.Fatalf("TestEndpoint 不应返回错误: %v", err)
+	}
+	if result.Model != "configured-model" {
+		t.Errorf("Model 应为配置的模型名 %q，got %q", "configured-model", result.Model)
+	}
+}
+
+func TestEndpoint_ModelFallbackChain(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := chatCompletionResponse{
+			Choices: []struct {
+				Index   int `json:"index"`
+				Message struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				} `json:"message"`
+			}{
+				{
+					Index: 0,
+					Message: struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					}{
+						Role:    "assistant",
+						Content: "Hello!",
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer mockServer.Close()
+
+	tests := []struct {
+		name string
+		cfg  *EndpointConfig
+		want string
+	}{
+		{
+			name: "uses direct model",
+			cfg:  &EndpointConfig{URL: mockServer.URL, Key: "sk-key", Model: "direct"},
+			want: "direct",
+		},
+		{
+			name: "falls back to ModelOpus",
+			cfg:  &EndpointConfig{URL: mockServer.URL, Key: "sk-key", ModelOpus: "opus"},
+			want: "opus",
+		},
+		{
+			name: "falls back to ModelSonnet",
+			cfg:  &EndpointConfig{URL: mockServer.URL, Key: "sk-key", ModelSonnet: "sonnet"},
+			want: "sonnet",
+		},
+		{
+			name: "falls back to ModelHaiku",
+			cfg:  &EndpointConfig{URL: mockServer.URL, Key: "sk-key", ModelHaiku: "haiku"},
+			want: "haiku",
+		},
+		{
+			name: "falls back to ModelSubagent",
+			cfg:  &EndpointConfig{URL: mockServer.URL, Key: "sk-key", ModelSubagent: "sub"},
+			want: "sub",
+		},
+		{
+			name: "falls back to default",
+			cfg:  &EndpointConfig{URL: mockServer.URL, Key: "sk-key"},
+			want: "default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			epDir := filepath.Join(tmpDir, tt.name)
+			if err := WriteEndpointConfig(epDir, tt.cfg); err != nil {
+				t.Fatalf("WriteEndpointConfig 失败: %v", err)
+			}
+			result, err := TestEndpoint(epDir)
+			if err != nil {
+				t.Fatalf("TestEndpoint 失败: %v", err)
+			}
+			if result.Model != tt.want {
+				t.Errorf("Model = %q, want %q", result.Model, tt.want)
+			}
+		})
+	}
+}
+
+func TestEndpoint_NewRequestError(t *testing.T) {
+	tmpDir := t.TempDir()
+	epDir := filepath.Join(tmpDir, "ep-bad-url")
+
+	cfg := &EndpointConfig{
+		URL:   "http://\x00invalid",
+		Key:   "sk-key",
+		Model: "gpt-4",
+	}
+	if err := WriteEndpointConfig(epDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+	_, err := TestEndpoint(epDir)
+	if err == nil {
+		t.Fatal("无效 URL 创建请求时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "创建 HTTP 请求失败") {
+		t.Errorf("错误信息应包含'创建 HTTP 请求失败'，got: %v", err)
+	}
+}
+
+func TestEndpoint_ConnectionError(t *testing.T) {
+	tmpDir := t.TempDir()
+	epDir := filepath.Join(tmpDir, "ep-conn-err")
+	cfg := &EndpointConfig{
+		URL:   "http://127.0.0.1:1",
+		Key:   "sk-key",
+		Model: "gpt-4",
+	}
+	if err := WriteEndpointConfig(epDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+	_, err := TestEndpoint(epDir)
+	if err == nil {
+		t.Fatal("连接失败时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "连接失败") {
+		t.Errorf("错误信息应包含'连接失败'，got: %v", err)
+	}
+}
+
+// --- 剩余未覆盖分支 ---
+
+func TestWriteEndpointConfig_MkdirAllError(t *testing.T) {
+	tmpDir := t.TempDir()
+	// 创建一个文件阻塞目录路径，使 MkdirAll 失败
+	blockPath := filepath.Join(tmpDir, "block")
+	if err := os.WriteFile(blockPath, []byte("block"), 0644); err != nil {
+		t.Fatalf("创建阻塞文件失败: %v", err)
+	}
+
+	err := WriteEndpointConfig(blockPath, &EndpointConfig{Provider: "test"})
+	if err == nil {
+		t.Fatal("MkdirAll 应返回错误")
+	}
+	if !strings.Contains(err.Error(), "创建端点配置目录失败") {
+		t.Errorf("错误信息应包含'创建端点配置目录失败'，got: %v", err)
+	}
+}
+
+func TestReadEndpointConfig_ParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	epDir := filepath.Join(tmpDir, "ep-parse-err")
+	if err := os.MkdirAll(epDir, 0755); err != nil {
+		t.Fatalf("MkdirAll 失败: %v", err)
+	}
+
+	// 写入包含超长行（>64KB）的文件触发 scanner.Err()
+	longLine := strings.Repeat("A", 64*1024+1)
+	envFile := filepath.Join(epDir, EndpointEnvFilename)
+	if err := os.WriteFile(envFile, []byte(longLine), 0600); err != nil {
+		t.Fatalf("WriteFile 失败: %v", err)
+	}
+
+	_, err := ReadEndpointConfig(epDir)
+	if err == nil {
+		t.Fatal("ReadEndpointConfig 应返回解析错误")
+	}
+	if !strings.Contains(err.Error(), "解析端点配置文件失败") {
+		t.Errorf("错误信息应包含'解析端点配置文件失败'，got: %v", err)
+	}
+}
+
+func TestRemoveEndpointConfig_RemoveError(t *testing.T) {
+	tmpDir := t.TempDir()
+	epDir := filepath.Join(tmpDir, "ep-remove-err")
+
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      "https://api.openai.com",
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(epDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	// 将目录设为只读，使 RemoveAll 失败
+	if err := os.Chmod(epDir, 0555); err != nil {
+		t.Fatalf("Chmod 失败: %v", err)
+	}
+	// 确保测试结束后恢复权限，让 t.TempDir() 能正常清理
+	defer os.Chmod(epDir, 0755)
+
+	err := RemoveEndpointConfig(epDir)
+	if err == nil {
+		t.Fatal("只读目录下删除应返回错误")
+	}
+	if !strings.Contains(err.Error(), "删除端点配置目录失败") {
+		t.Errorf("错误信息应包含'删除端点配置目录失败'，got: %v", err)
+	}
+}
+
+func TestEndpoint_ReadBodyError(t *testing.T) {
+	// 谎报 Content-Length 触发 io.ReadAll 错误
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000000")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`partial`))
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	epDir := filepath.Join(tmpDir, "ep-readerr")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(epDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	_, err := TestEndpoint(epDir)
+	if err == nil {
+		t.Fatal("响应体读取失败时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "读取响应体失败") {
+		t.Errorf("期望'读取响应体失败'错误，got: %v", err)
+	}
+}
+
+func TestEndpoint_NonOKStatus_LongBody(t *testing.T) {
+	// body > 200 字符触发响应预览截断分支
+	longBody := strings.Repeat("error details ", 30)
+	if len(longBody) <= 200 {
+		t.Fatal("测试 body 应超过 200 字符")
+	}
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(longBody))
+	}))
+	defer mockServer.Close()
+
+	tmpDir := t.TempDir()
+	epDir := filepath.Join(tmpDir, "ep-long-body")
+	cfg := &EndpointConfig{
+		Provider: "openai",
+		URL:      mockServer.URL,
+		Key:      "sk-key",
+		Model:    "gpt-4",
+	}
+	if err := WriteEndpointConfig(epDir, cfg); err != nil {
+		t.Fatalf("WriteEndpointConfig 失败: %v", err)
+	}
+
+	_, err := TestEndpoint(epDir)
+	if err == nil {
+		t.Fatal("500 时应返回错误")
+	}
+	if !strings.Contains(err.Error(), "HTTP 500") {
+		t.Errorf("错误信息应包含'HTTP 500'，got: %v", err)
 	}
 }

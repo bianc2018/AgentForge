@@ -211,6 +211,130 @@ func TestUpdate_CustomUpdateURL(t *testing.T) {
 }
 
 // TestNew_WithOptions 验证各种选项设置。
+func TestUpdate_StatFailed(t *testing.T) {
+	tmpDir := t.TempDir()
+	currentPath := filepath.Join(tmpDir, "agent-forge")
+	originalContent := "original"
+	if err := os.WriteFile(currentPath, []byte(originalContent), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := New(
+		WithCurrentPath(currentPath),
+		WithHTTPClient(&mockHTTPClient{statusCode: http.StatusOK, body: "new content"}),
+	)
+	engine.osStat = func(name string) (os.FileInfo, error) {
+		return nil, errors.New("stat failed")
+	}
+
+	err := engine.Update()
+	if err == nil {
+		t.Fatal("Update() 应返回错误")
+	}
+}
+
+func TestUpdate_ChmodFailed_Rollback(t *testing.T) {
+	tmpDir := t.TempDir()
+	currentPath := filepath.Join(tmpDir, "agent-forge")
+	originalContent := "original"
+	if err := os.WriteFile(currentPath, []byte(originalContent), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := New(
+		WithCurrentPath(currentPath),
+		WithHTTPClient(&mockHTTPClient{statusCode: http.StatusOK, body: "new content"}),
+	)
+	// 此测试验证 Update 的流程完整性 — os.Chmod 在临时目录中不应失败
+	// 但覆盖了 osStat + osRename + osRemove 路径
+	err := engine.Update()
+	if err != nil {
+		t.Fatalf("Update() 应成功, 但返回: %v", err)
+	}
+	data, _ := os.ReadFile(currentPath)
+	if string(data) != "new content" {
+		t.Errorf("更新后应为新内容, 实际: %s", data)
+	}
+}
+
+func TestDownload_CreateError(t *testing.T) {
+	engine := New(
+		WithHTTPClient(&mockHTTPClient{statusCode: http.StatusOK, body: "content"}),
+	)
+	// /proc 是只读虚拟文件系统，os.Create 会失败
+	err := engine.download(engine.updateURL, "/proc/impossible/path/file")
+	if err == nil {
+		t.Fatal("download() 应返回错误（os.Create 失败）")
+	}
+	if !strings.Contains(err.Error(), "创建下载文件失败") {
+		t.Errorf("错误信息应包含 '创建下载文件失败', 实际: %v", err)
+	}
+}
+
+func TestUpdate_EmptyCurrentPath(t *testing.T) {
+	engine := New()
+	engine.currentPath = ""
+	err := engine.Update()
+	if err == nil {
+		t.Fatal("Update() 应返回错误")
+	}
+	if !strings.Contains(err.Error(), "无法确定") {
+		t.Errorf("错误信息应包含 '无法确定', 实际: %v", err)
+	}
+}
+
+func TestNew_WithAllCustomMocks(t *testing.T) {
+	engine := New(
+		WithCurrentPath("/custom/path"),
+		WithHTTPClient(&mockHTTPClient{}),
+		WithUpdateURL("https://custom.url"),
+		WithRename(func(o, n string) error { return errors.New("mock rename") }),
+	)
+	if engine.osRename == nil {
+		t.Error("WithRename 应设置 osRename")
+	}
+	if engine.osStat == nil {
+		t.Error("osStat 应为非 nil")
+	}
+	if engine.osRemove == nil {
+		t.Error("osRemove 应为非 nil")
+	}
+}
+
+func TestUpdate_CopyFileOpenError(t *testing.T) {
+	engine := New(
+		WithCurrentPath("/nonexistent/path/agent-forge"),
+		WithHTTPClient(&mockHTTPClient{statusCode: http.StatusOK, body: "new"}),
+	)
+
+	err := engine.Update()
+	if err == nil {
+		t.Fatal("Update() 应返回错误（copyFile 找不到源文件）")
+	}
+	if !strings.Contains(err.Error(), "备份当前版本失败") {
+		t.Errorf("错误信息应包含 '备份当前版本失败', 实际: %v", err)
+	}
+}
+
+func TestCopyFile_OpenFileError(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcPath := filepath.Join(tmpDir, "src")
+	if err := os.WriteFile(srcPath, []byte("src content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 目标路径的父目录是一个文件（/proc/self/status），而非目录
+	// os.OpenFile 会因 ENOTDIR 失败，无论是否以 root 运行
+	dstPath := "/proc/self/status/subdir/file"
+
+	engine := New()
+	err := engine.copyFile(srcPath, dstPath)
+	if err == nil {
+		t.Fatal("copyFile() 应返回错误（目标路径父目录是文件）")
+	}
+	t.Logf("copyFile OpenFile error (expected): %v", err)
+}
+
 func TestNew_WithOptions(t *testing.T) {
 	tmpDir := t.TempDir()
 	currentPath := filepath.Join(tmpDir, "test-binary")

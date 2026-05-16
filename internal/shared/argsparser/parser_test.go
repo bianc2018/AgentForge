@@ -283,3 +283,284 @@ func TestParseBuild_WithSubcommandToken(t *testing.T) {
 		t.Errorf("Deps = %q, want %q", params.Deps, "mini")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Error type formatting
+// ---------------------------------------------------------------------------
+
+func TestErrUnknownFlag_Error(t *testing.T) {
+	e := &ErrUnknownFlag{Flag: "--bogus"}
+	want := "未知参数: --bogus"
+	if got := e.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestErrMissingValue_Error(t *testing.T) {
+	e := &ErrMissingValue{Flag: "-x"}
+	want := "参数 -x 缺少值"
+	if got := e.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestErrInvalidValue_Error(t *testing.T) {
+	e := &ErrInvalidValue{Flag: "--port", Value: "abc", Reason: "必须为整数"}
+	want := `参数 --port 的值 "abc" 无效: 必须为整数`
+	if got := e.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ParseBuild — table-driven edge cases
+// ---------------------------------------------------------------------------
+
+func TestParseBuild_MissingValueForEachFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "deps short -d", args: []string{"-d"}},
+		{name: "base-image short -b", args: []string{"-b"}},
+		{name: "config short -c", args: []string{"-c"}},
+		{name: "max-retry without value", args: []string{"--max-retry"}},
+		{name: "gh-proxy without value", args: []string{"--gh-proxy"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseBuild(tt.args)
+			if err == nil {
+				t.Fatal("expected ErrMissingValue")
+			}
+			if _, ok := err.(*ErrMissingValue); !ok {
+				t.Errorf("error type = %T, want *ErrMissingValue", err)
+			}
+		})
+	}
+}
+
+func TestParseBuild_ConfigFlagShortAndLong(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "short -c", args: []string{"-c", "/tmp/build-cfg"}, want: "/tmp/build-cfg"},
+		{name: "long --config", args: []string{"--config", "/tmp/build-cfg"}, want: "/tmp/build-cfg"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params, err := ParseBuild(tt.args)
+			if err != nil {
+				t.Fatalf("ParseBuild(%v) error = %v", tt.args, err)
+			}
+			if params.Config != tt.want {
+				t.Errorf("Config = %q, want %q", params.Config, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseBuild_LongFormFlags(t *testing.T) {
+	params, err := ParseBuild([]string{
+		"--deps", "golang,node",
+		"--base-image", "ubuntu:22.04",
+		"--no-cache",
+		"--rebuild",
+		"--max-retry", "10",
+		"--gh-proxy", "https://ghproxy.example.com",
+	})
+	if err != nil {
+		t.Fatalf("ParseBuild() error = %v", err)
+	}
+	if params.Deps != "golang,node" {
+		t.Errorf("Deps = %q, want %q", params.Deps, "golang,node")
+	}
+	if params.BaseImage != "ubuntu:22.04" {
+		t.Errorf("BaseImage = %q, want %q", params.BaseImage, "ubuntu:22.04")
+	}
+	if !params.NoCache {
+		t.Error("NoCache = false, want true")
+	}
+	if !params.Rebuild {
+		t.Error("Rebuild = false, want true")
+	}
+	if params.MaxRetry != 10 {
+		t.Errorf("MaxRetry = %d, want %d", params.MaxRetry, 10)
+	}
+	if params.GHProxy != "https://ghproxy.example.com" {
+		t.Errorf("GHProxy = %q, want %q", params.GHProxy, "https://ghproxy.example.com")
+	}
+}
+
+func TestParseBuild_NilAndEmptyArgs(t *testing.T) {
+	// nil slice
+	params, err := ParseBuild(nil)
+	if err != nil {
+		t.Fatalf("ParseBuild(nil) error = %v", err)
+	}
+	if params.BaseImage != "docker.1ms.run/centos:7" {
+		t.Errorf("BaseImage = %q, want default", params.BaseImage)
+	}
+	// empty slice
+	params2, err := ParseBuild([]string{})
+	if err != nil {
+		t.Fatalf("ParseBuild([]) error = %v", err)
+	}
+	if params2.MaxRetry != 3 {
+		t.Errorf("MaxRetry = %d, want 3", params2.MaxRetry)
+	}
+}
+
+func TestParseBuild_MaxRetryZero(t *testing.T) {
+	params, err := ParseBuild([]string{"--max-retry", "0"})
+	if err != nil {
+		t.Fatalf("ParseBuild(--max-retry 0) error = %v", err)
+	}
+	if params.MaxRetry != 0 {
+		t.Errorf("MaxRetry = %d, want 0", params.MaxRetry)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ParseRun — table-driven edge cases
+// ---------------------------------------------------------------------------
+
+func TestParseRun_MissingValueForEachFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "agent short -a", args: []string{"-a"}},
+		{name: "port short -p", args: []string{"-p"}},
+		{name: "mount short -m", args: []string{"-m"}},
+		{name: "env short -e", args: []string{"-e"}},
+		{name: "workdir short -w", args: []string{"-w"}},
+		{name: "run flag --run", args: []string{"--run"}},
+		{name: "config short -c", args: []string{"-c"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseRun(tt.args)
+			if err == nil {
+				t.Fatal("expected ErrMissingValue")
+			}
+			if _, ok := err.(*ErrMissingValue); !ok {
+				t.Errorf("error type = %T, want *ErrMissingValue", err)
+			}
+		})
+	}
+}
+
+func TestParseRun_CommandFlag(t *testing.T) {
+	params, err := ParseRun([]string{"--run", "npm test"})
+	if err != nil {
+		t.Fatalf("ParseRun(--run) error = %v", err)
+	}
+	if params.RunCmd != "npm test" {
+		t.Errorf("RunCmd = %q, want %q", params.RunCmd, "npm test")
+	}
+}
+
+func TestParseRun_ConfigFlagShortAndLong(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "short -c", args: []string{"-c", "/tmp/run-cfg"}, want: "/tmp/run-cfg"},
+		{name: "long --config", args: []string{"--config", "/tmp/run-cfg"}, want: "/tmp/run-cfg"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params, err := ParseRun(tt.args)
+			if err != nil {
+				t.Fatalf("ParseRun(%v) error = %v", tt.args, err)
+			}
+			if params.Config != tt.want {
+				t.Errorf("Config = %q, want %q", params.Config, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseRun_LongFormFlags(t *testing.T) {
+	params, err := ParseRun([]string{
+		"--agent", "claude",
+		"--port", "3000:3000",
+		"--mount", "/data",
+		"--env", "KEY=VAL",
+		"--workdir", "/app",
+		"--recall",
+		"--docker",
+	})
+	if err != nil {
+		t.Fatalf("ParseRun() error = %v", err)
+	}
+	if params.Agent != "claude" {
+		t.Errorf("Agent = %q, want %q", params.Agent, "claude")
+	}
+	if len(params.Ports) != 1 || params.Ports[0] != "3000:3000" {
+		t.Errorf("Ports = %v, want [3000:3000]", params.Ports)
+	}
+	if len(params.Mounts) != 1 || params.Mounts[0] != "/data" {
+		t.Errorf("Mounts = %v, want [/data]", params.Mounts)
+	}
+	if len(params.Envs) != 1 || params.Envs[0] != "KEY=VAL" {
+		t.Errorf("Envs = %v, want [KEY=VAL]", params.Envs)
+	}
+	if params.Workdir != "/app" {
+		t.Errorf("Workdir = %q, want %q", params.Workdir, "/app")
+	}
+	if !params.Recall {
+		t.Error("Recall = false, want true")
+	}
+	if !params.Docker {
+		t.Error("Docker = false, want true")
+	}
+}
+
+func TestParseRun_MultiEnv(t *testing.T) {
+	params, err := ParseRun([]string{"-e", "A=1", "-e", "B=2", "-e", "C=3"})
+	if err != nil {
+		t.Fatalf("ParseRun() error = %v", err)
+	}
+	if len(params.Envs) != 3 {
+		t.Fatalf("len(Envs) = %d, want 3", len(params.Envs))
+	}
+	if params.Envs[0] != "A=1" || params.Envs[1] != "B=2" || params.Envs[2] != "C=3" {
+		t.Errorf("Envs = %v, want [A=1 B=2 C=3]", params.Envs)
+	}
+}
+
+func TestParseRun_NilAndEmptyArgs(t *testing.T) {
+	// nil slice
+	params, err := ParseRun(nil)
+	if err != nil {
+		t.Fatalf("ParseRun(nil) error = %v", err)
+	}
+	if params.Agent != "" {
+		t.Errorf("Agent = %q, want empty", params.Agent)
+	}
+	// empty slice
+	params2, err := ParseRun([]string{})
+	if err != nil {
+		t.Fatalf("ParseRun([]) error = %v", err)
+	}
+	if params2.Docker {
+		t.Error("Docker = true, want false")
+	}
+}
+
+func TestParseRun_DindAlias(t *testing.T) {
+	// --dind is already tested in TestParseRun_DockerAlias, but ensure
+	// the short form of recall doesn't interfere with --dind
+	params, err := ParseRun([]string{"--dind"})
+	if err != nil {
+		t.Fatalf("ParseRun(--dind) error = %v", err)
+	}
+	if !params.Docker {
+		t.Error("Docker = false, want true")
+	}
+}

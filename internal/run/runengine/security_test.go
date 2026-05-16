@@ -439,6 +439,13 @@ func setupSecurityTest(t *testing.T) (*dockerhelper.Client, context.Context, fun
 			helper.Close()
 			t.Skipf("无法标记测试镜像 %s -> %s: %v", testImageName, ImageName, err)
 		}
+
+		// 验证标签已创建
+		if verifyExists, verifyErr := helper.ImageExists(ctx, ImageName); verifyErr != nil || !verifyExists {
+			cancel()
+			helper.Close()
+			t.Skipf("标记后验证失败: ImageExists(%q) = (%v, %v)", ImageName, verifyExists, verifyErr)
+		}
 	}
 
 	cleanup := func() {
@@ -692,13 +699,12 @@ func TestST3_NoMountNoExtra(t *testing.T) {
 		_ = helper.ContainerRemove(ctx, resp.ID, true, false)
 	}()
 
-	// 通过 docker inspect 验证无额外挂载
+	// 通过 docker inspect 验证仅有工作目录自动挂载（无额外 -m 挂载）
 	inspectData := inspectContainer(t, resp.ID)
 	mountsData := getContainerField(inspectData, "Mounts")
 
 	if mountsData == nil {
-		t.Log("Mounts 为空 — 无额外挂载验证通过")
-		return
+		t.Fatal("Mounts 为空 — 预期至少包含工作目录自动挂载")
 	}
 
 	mounts, ok := mountsData.([]interface{})
@@ -706,9 +712,15 @@ func TestST3_NoMountNoExtra(t *testing.T) {
 		t.Fatalf("Mounts 类型错误: %T", mountsData)
 	}
 
-	if len(mounts) > 0 {
-		t.Errorf("预期无额外挂载，但发现 %d 个挂载: %v", len(mounts), mounts)
-	} else {
-		t.Log("Mounts 为空切片 — 无额外挂载验证通过")
+	// 应仅有工作目录自动挂载（1:1 rw）
+	if len(mounts) != 1 {
+		t.Fatalf("预期 1 个挂载（工作目录自动挂载），实际 %d 个: %v", len(mounts), mounts)
 	}
+
+	m := mounts[0].(map[string]interface{})
+	rw, _ := m["RW"].(bool)
+	if !rw {
+		t.Error("工作目录自动挂载应为读写（RW=true）")
+	}
+	t.Log("无 -m 时仅有工作目录自动挂载（rw），验证通过")
 }

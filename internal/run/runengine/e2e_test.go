@@ -76,6 +76,11 @@ func ensureImageExists(t *testing.T, ctx context.Context, helper *dockerhelper.C
 	if err := helper.ImageTag(ctx, e2eTestBaseImage, ImageName); err != nil {
 		t.Skipf("无法标记镜像 %s -> %s: %v", e2eTestBaseImage, ImageName, err)
 	}
+
+	// 验证标签已创建
+	if verifyExists, verifyErr := helper.ImageExists(ctx, ImageName); verifyErr != nil || !verifyExists {
+		t.Skipf("标记后验证失败: ImageExists(%q) = (%v, %v)", ImageName, verifyExists, verifyErr)
+	}
 	t.Logf("成功标记镜像 %s -> %s", e2eTestBaseImage, ImageName)
 }
 
