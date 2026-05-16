@@ -23,6 +23,17 @@
 
 其中 `<type>` 取值为 `feat | fix | docs | chore | refactor | test`。
 
+## 覆盖率门禁
+
+每次完成一个功能开发或 bug 修复后，必须本地运行覆盖率门禁脚本，验证通过后才能提交：
+
+```bash
+go test -short -coverprofile=coverage.out -covermode=atomic ./...
+bash scripts/check-coverage.sh
+```
+
+要求：所有业务包 ≥ 90%，总体 ≥ 90%，脚本退出码为 0。不达标则补充测试直到通过。
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
